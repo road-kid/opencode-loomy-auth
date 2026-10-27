@@ -1,13 +1,24 @@
 // The points card: the summary off the V2 records call — the two data floors
 // it has shipped in, the numbers it has quoted — with used a percentage 0-100
-// and the amounts in display alone (F1). Not signed in answers {error} alone;
-// a dead sign-in keeps its marker and everything else is a kept sign-in's bad
-// answer.
+// and the amounts in display alone (F1). The grant's dailyBalance is its
+// remaining, not its size, so the percentage needs a quota: the pair an
+// older answer carried, the dailyQuota on the answer, or the size the
+// check-in noted — issue #1's real captures are the fixtures. Not signed in
+// answers {error} alone; a dead sign-in keeps its marker and everything else
+// is a kept sign-in's bad answer.
 import "./nonet.mjs"
 import { afterEach, beforeEach, test } from "node:test"
 import assert from "node:assert/strict"
+import { writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { LoomyAuthPlugin, _internal } from "./index.mjs"
 import { fakeLoomy, json, pointAt } from "./fake.mjs"
+
+// the quota cache pointed at a throwaway, so a run of these tests never
+// touches a note that belongs to a real install
+process.env.LOOMY_QUOTA_CACHE_FILE = join(tmpdir(), `loomy-quota-usage-${randomUUID()}.json`)
 
 let f
 let restore
@@ -40,12 +51,31 @@ test("used is the grant's consumed share; the amounts live in display (F1)", () 
   assert.deepEqual(permanent, { name: "永久积分", used: 0, display: "100 积分", aside: true }) // a status row, always zero
 })
 
-test("a grant without the pair is zero used, its own balance in display", () => {
+test("a grant without a size shows its remaining alone, zero used (issue #1: no pair comes back)", () => {
   const card = _internal.usageOf({ data: { balance: 0, dailyBalance: 40 } })
   const [grant] = card.windows
   assert.equal(grant.used, 0)
-  assert.equal(grant.display, "40 积分")
+  assert.equal(grant.display, "剩余 40 积分")
   assert.equal(card.balance, "40 积分")
+})
+
+test("dailyBalance is the grant's remaining: with a size, the share reads off it (issue #1's capture)", () => {
+  const capture = { code: "000000", data: { balance: 0, dailyBalance: 3011 } } // quota 5000, consumed 1989 — the first-login answer beside it says
+  const [bare] = _internal.usageOf(capture).windows
+  assert.equal(bare.used, 0) // no size, no invented share
+  assert.equal(bare.display, "剩余 3011 积分")
+  const [sized] = _internal.usageOf(capture, 5000).windows
+  assert.equal(sized.used, 40) // (5000-3011)/5000, a percentage
+  assert.equal(sized.display, "剩余 3011 / 限额 5000")
+})
+
+test("the size the check-in noted carries across restarts, by the cache file", async () => {
+  await writeFile(process.env.LOOMY_QUOTA_CACHE_FILE, JSON.stringify({ "139****9000": 5000 }), "utf8")
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 3011 } }))
+  const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "139****9000" }))
+  const [grant] = card.windows
+  assert.equal(grant.used, 40)
+  assert.equal(grant.display, "剩余 3011 / 限额 5000")
 })
 
 test("missing numbers read as zero, and the sum rounds to cents", () => {
@@ -53,7 +83,7 @@ test("missing numbers read as zero, and the sum rounds to cents", () => {
   assert.equal(_internal.usageOf({}).balance, "0 积分")
 })
 
-test("the card off the fake, with the query the client's own points page sends", async () => {
+test("the card off the fake, the older answer's pair on it — the pair still wins (compat)", async () => {
   f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 120, dailyBalance: 80, dailyRemainingPoints: 20, dailyLimitPoints: 80 } }))
   const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "138****8000" }))
   assert.deepEqual(card, {

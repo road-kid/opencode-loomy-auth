@@ -19,6 +19,8 @@
 // them at fakes of their own by setting the environment.
 
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto"
+import { readFile, writeFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 
 const ID = "loomy"
 const NPM = "@ai-sdk/openai-compatible" // the OpenAI Chat shape Loomy's gateway speaks
@@ -462,43 +464,109 @@ function pickNumber(v) {
 // first, the shallower one behind it, the same settle balance.rs makes
 const pointsFloor = (payload) => plainObject(payload?.data?.data) ?? plainObject(payload?.data) ?? {}
 
+// ---- the grant's size, kept from the first-login answer ---------------------------
+// The card's percentage needs the grant's size, but the records call — the
+// only read the card makes — answers with the grant's remaining alone
+// (dailyBalance), and the size (dailyQuota) rides the first-login answer
+// the check-in already pays for. So the check-in notes the size per
+// account: in memory for the run, and in a small JSON beside the plugin
+// for the next — the card reads the note back and never has to call the
+// write endpoint on its own. Both halves are best-effort: a filesystem
+// that refuses answers nothing rather than failing the card or the claim,
+// and LOOMY_QUOTA_CACHE_FILE moves the file the way the other knobs move
+// the hosts.
+
+const quotaCacheFile = () =>
+  process.env.LOOMY_QUOTA_CACHE_FILE || fileURLToPath(new URL("./.loomy-quota.json", import.meta.url))
+
+// the run's notes, one size per account; a read falls through to the file
+// whenever the memory map has no note, so a fresh process — or a note
+// another one wrote — is picked up where it stands
+const quotaNotes = new Map()
+
+async function quotaNoteOf(account) {
+  if (quotaNotes.has(account)) return quotaNotes.get(account)
+  try {
+    const store = plainObject(JSON.parse(await readFile(quotaCacheFile(), "utf8")))
+    if (store) {
+      for (const [key, value] of Object.entries(store)) {
+        if (quotaNotes.has(key)) continue
+        const quota = pickNumber(value)
+        if (quota !== undefined) quotaNotes.set(key, quota)
+      }
+    }
+  } catch {}
+  return quotaNotes.get(account)
+}
+
+// noteQuota keeps one account's size in the memory map and merges it into
+// the file, so other accounts' notes survive the write
+async function noteQuota(account, quota) {
+  if (quota === undefined) return
+  quotaNotes.set(account, quota)
+  try {
+    let store = {}
+    try {
+      store = plainObject(JSON.parse(await readFile(quotaCacheFile(), "utf8"))) ?? {}
+    } catch {}
+    store[account] = quota
+    await writeFile(quotaCacheFile(), JSON.stringify(store), "utf8")
+  } catch {}
+}
+
 // usageOf is the card. The two wallets Loomy keeps — the permanent balance
 // and the daily grant — add into the one balance line, and the grant takes
 // the window. used is a percentage 0-100; the amounts live in display
-// alone. The grant's percentage is its consumed share, read off
-// dailyRemainingPoints/dailyLimitPoints when both are there (the pair the
-// client shows on the team card — a display of its own, never mixed into
-// the balance reads), else zero with the grant's own balance in display;
-// the permanent line is a status row set aside, always zero — a permanent
-// balance has no window to consume. The grant's size is whatever the
-// answer says; no figure is assumed of it.
-function usageOf(payload) {
+// alone. The grant's dailyBalance is its remaining, not its size — the
+// first-login answer says the arithmetic aloud: dailyQuota 5000,
+// dailyConsumed 1989, dailyBalance 3011 — so the percentage needs a size:
+// the pair an older answer carried (dailyRemainingPoints/dailyLimitPoints,
+// kept first while both halves are there), the dailyQuota on the answer
+// that carries it, or the size the check-in noted from the first-login
+// call. With a size the grant shows its consumed share; without one no
+// share is invented — the remaining stands in the display alone, labeled
+// as the remaining it is, and no figure of the grant is assumed. The
+// permanent line is a status row set aside, always zero — a permanent
+// balance has no window to consume. The balance line is the total the
+// answer names (availableBalance/currentBalance — the first-login answer's
+// own name for it) or the two wallets summed.
+function usageOf(payload, notedQuota) {
   const data = pointsFloor(payload)
-  const permanent = pickNumber(data.balance) ?? 0
-  const daily = pickNumber(data.dailyBalance) ?? 0
-  const remaining = pickNumber(data.dailyRemainingPoints)
-  const limit = pickNumber(data.dailyLimitPoints)
-  const both = remaining !== undefined && limit !== undefined
+  const permanent = pickNumber(data.balance) ?? pickNumber(data.permanentBalance) ?? 0
+  const pair =
+    pickNumber(data.dailyRemainingPoints) !== undefined && pickNumber(data.dailyLimitPoints) !== undefined
+  const remaining = pair ? pickNumber(data.dailyRemainingPoints) : pickNumber(data.dailyBalance)
+  const quota = pair ? pickNumber(data.dailyLimitPoints) : (pickNumber(data.dailyQuota) ?? notedQuota)
+  const share = remaining !== undefined && quota !== undefined && quota > 0 ? (quota - remaining) / quota : undefined
+  const named = pickNumber(data.availableBalance) ?? pickNumber(data.currentBalance)
+  const total = named ?? (permanent + (pickNumber(data.dailyBalance) ?? 0))
   return {
-    balance: `${Math.round((permanent + daily) * 100) / 100} 积分`,
+    balance: `${Math.round(total * 100) / 100} 积分`,
     windows: [
       {
         name: "每日赠送",
-        used: both && limit > 0 ? Math.max(0, Math.min(100, Math.round(((limit - remaining) / limit) * 100))) : 0,
+        used: share !== undefined ? Math.max(0, Math.min(100, Math.round(share * 100))) : 0,
         span: 86400, // a day: the grant comes back with the calendar
-        display: both ? `剩余 ${remaining} / 限额 ${limit}` : `${daily} 积分`,
+        display:
+          share !== undefined
+            ? `剩余 ${remaining} / 限额 ${quota}`
+            : remaining !== undefined
+              ? `剩余 ${remaining} 积分`
+              : "0 积分",
       },
       { name: "永久积分", used: 0, display: `${permanent} 积分`, aside: true },
     ],
   }
 }
 
-// checkinOf reads a first-login answer as the claim. The server renews the
-// grant once a day and answers a repeat the same way, so "already today" is
-// not a state it can tell apart — every success is claimed. The answer
-// carries no granted-this-time field, and what it does carry of the grant
-// (dailyBalance, when it carries it at all) is the balance, not the gain —
-// so no credit is ever promised here; the balance goes into the wording.
+// checkinOf reads a first-login answer as the claim. The answer's
+// alreadyProcessed is the one flag that tells the day's renewal from a
+// repeat: a repeat answers true and the claim is done — already claimed,
+// not claimed again — and the day's first answers false. What the answer
+// carries of the grant is its remaining (dailyBalance), not its gain; the
+// gain reads only when the arithmetic is there in full (dailyQuota minus
+// dailyConsumed), and then it is promised as the claim's credit. The
+// wording carries the remaining beside the quota whenever both are there.
 function checkinOf(payload) {
   const code = businessCode(payload)
   if (AUTH_CODES.has(code)) {
@@ -508,10 +576,24 @@ function checkinOf(payload) {
     const text = upstreamMessage(payload)
     return { outcome: "failed", message: text ? `每日积分刷新失败：${text}` : `每日积分刷新失败（上游 code=${code}）` }
   }
-  const daily = pickNumber(payload?.data?.dailyBalance) ?? pickNumber(payload?.data?.data?.dailyBalance)
+  const data = plainObject(payload?.data?.data) ?? plainObject(payload?.data) ?? {}
+  const daily = pickNumber(data.dailyBalance)
+  const quota = pickNumber(data.dailyQuota)
+  const consumed = pickNumber(data.dailyConsumed)
+  const rest = daily !== undefined && quota !== undefined ? `剩余 ${daily} / ${quota}` : daily !== undefined ? `当前 ${daily}` : ""
+  if (data.alreadyProcessed === true) {
+    return { outcome: "done", message: rest ? `今日已刷新（${rest}）` : "今日已刷新" }
+  }
+  const gain = quota !== undefined && consumed !== undefined ? quota - consumed : undefined
   return {
     outcome: "claimed",
-    message: daily !== undefined ? `每日赠送积分已刷新（当前 ${daily}）` : "每日赠送积分已刷新",
+    ...(gain !== undefined && gain > 0 ? { credit: gain } : {}),
+    message:
+      gain !== undefined && gain > 0
+        ? `每日赠送积分已刷新（+${gain}${daily !== undefined ? `，当前 ${daily}` : ""}）`
+        : rest
+          ? `每日赠送积分已刷新（${rest}）`
+          : "每日赠送积分已刷新",
   }
 }
 
@@ -682,7 +764,12 @@ export const LoomyAuthPlugin = async ({ client }) => ({
           const text = upstreamMessage(payload)
           throw new Error(text ? `积分查询失败：${text}` : `积分查询失败（上游 code=${code}）`)
         }
-        return { plan: "Loomy", ...usageOf(payload), user: auth.accountId || "Loomy 账号", signIn: "kept" }
+        return {
+          plan: "Loomy",
+          ...usageOf(payload, await quotaNoteOf(String(auth.accountId ?? ""))),
+          user: auth.accountId || "Loomy 账号",
+          signIn: "kept",
+        }
       } catch (e) {
         // a dead sign-in keeps its marker (thrown here or by the gateway's
         // own 401/403); every other failure is a kept sign-in's bad answer
@@ -696,7 +783,11 @@ export const LoomyAuthPlugin = async ({ client }) => ({
       const access = typeof auth?.access === "string" ? auth.access.trim() : ""
       if (!access) return { outcome: "failed", message: "not signed in" }
       try {
-        return checkinOf(await tokenPost(FIRST_LOGIN_PATH, {}, access))
+        const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
+        // the grant's size, kept for the card before the claim is read — a
+        // note that must never break the claim itself
+        await noteQuota(String(auth.accountId ?? ""), pickNumber(pointsFloor(payload)?.dailyQuota))
+        return checkinOf(payload)
       } catch (e) {
         return { outcome: "failed", message: e?.message ?? String(e), ...(e?.signIn ? { signIn: e.signIn } : {}) }
       }
@@ -752,6 +843,9 @@ export const _internal = {
   pickNumber,
   usageOf,
   checkinOf,
+  quotaCacheFile,
+  quotaNoteOf,
+  noteQuota,
   splitRateSuffix,
   parseModels,
   configModelOf,
