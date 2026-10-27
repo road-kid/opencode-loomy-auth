@@ -64,19 +64,67 @@ test("a dead sign-in code answers failed and ends the sign-in", async () => {
 
 test("two calls in a row both claim: the idempotent reading", async () => {
   f.route("POST /api/v1/points/first-login", () => json({ code: "000000", data: { dailyBalance: 5000 } }))
+  // the newcomer board fully claimed: the claim round reads it and asks nothing further
+  const allDone = Object.fromEntries(_internal.ONBOARDING_TASKS.map((t) => [t.key, true]))
+  f.route("GET /api/v1/onboarding/tasks", () => json({ code: "000000", data: { tasks: allDone } }))
   const auth = async () => ({ access: "tok" })
   const first = await hooks.auth.checkin(auth)
   const second = await hooks.auth.checkin(auth)
   assert.equal(first.outcome, "claimed")
   assert.equal(second.outcome, "claimed") // no client-side "already done today"
-  assert.equal(f.seen.length, 2) // both went out
-  for (const r of f.seen) {
+  // both rounds went out: the daily grant twice, the tasks board twice
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 2)
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks").length, 2)
+  for (const r of f.seen.filter((r) => r.path === "/api/v1/points/first-login")) {
     assert.equal(r.method, "POST")
-    assert.equal(r.path, "/api/v1/points/first-login")
     assert.equal(r.text, "{}") // first-login's own body is one
     assert.equal(r.headers.token, "tok")
     assert.equal(r.headers.authorization, "Bearer tok")
   }
+})
+
+test("the check-in also claims the newcomer tasks, highest value first, one at a time", async () => {
+  f.route("POST /api/v1/points/first-login", () =>
+    json({ code: "000000", data: { alreadyProcessed: false, dailyBalance: 5000, dailyQuota: 5000, dailyConsumed: 0 } })
+  )
+  // first_message is done; the other seven stand, 9500 points in all
+  const done = { first_message: true }
+  f.route("GET /api/v1/onboarding/tasks", () => json({ code: "000000", data: { tasks: done, earned: 500, total: 10000 } }))
+  f.route("POST /api/v1/onboarding/tasks/complete", () => json({ code: "000000", data: { alreadyCompleted: false, balance: 10000 } }))
+  const out = await hooks.auth.checkin(async () => ({ access: "tok-order" }))
+  assert.equal(out.outcome, "claimed")
+  assert.match(out.message, /，新手任务 \+9500（7 项）$/)
+  // the claim order is the value order, and each claim is its own call
+  const claims = f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks/complete")
+  assert.equal(claims.length, 7)
+  assert.deepEqual(
+    claims.map((r) => r.json.key),
+    ["share_soul", "generate_ppt", "install_skill", "create_soul", "pick_skill", "set_schedule", "configure_remote"]
+  )
+  for (const r of claims) {
+    assert.equal(r.headers.token, "tok-order")
+    assert.equal(r.headers.authorization, "Bearer tok-order")
+  }
+})
+
+test("a refusal among the one-time claims never touches the daily claim", async () => {
+  f.route("POST /api/v1/points/first-login", () => json({ code: "000000", data: { dailyBalance: 5000 } }))
+  f.route("GET /api/v1/onboarding/tasks", () => json({ code: "000000", data: { tasks: {} } })) // all eight stand
+  f.route("POST /api/v1/onboarding/tasks/complete", () => json({ code: "100009", desc: "风控" }, 200)) // every claim fails
+  const out = await hooks.auth.checkin(async () => ({ access: "tok-isol" }))
+  assert.deepEqual(out, { outcome: "claimed", message: "每日赠送积分已刷新（当前 5000）" })
+  // a dead board (HTTP-level refusal) is the same silence
+  f.route("GET /api/v1/onboarding/tasks", () => json({}, 500))
+  const again = await hooks.auth.checkin(async () => ({ access: "tok-isol" }))
+  assert.deepEqual(again, { outcome: "claimed", message: "每日赠送积分已刷新（当前 5000）" })
+})
+
+test("a repeat's alreadyCompleted answers no points", () => {
+  const board = { tasks: { pick_skill: true }, nonsense: true } // unknown keys read as nothing
+  assert.deepEqual(
+    _internal.onboardingStateOf({ code: "000000", data: board }).map((t) => t.key),
+    _internal.ONBOARDING_TASKS.filter((t) => t.key !== "pick_skill").map((t) => t.key)
+  )
 })
 
 test("a repeat answers done — alreadyProcessed tells it apart (issue #1's capture)", async () => {

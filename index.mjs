@@ -8,7 +8,8 @@
 // in; the gateway forwarding and its error translation are in; the live
 // model list, with the web plane's fallback table behind it, is in; the
 // points card (the permanent balance and the daily grant) and the daily
-// first-login refresh are in.
+// first-login refresh are in; the newcomer tasks — the one-time purse the
+// check-in claims beside the grant — are in.
 
 // Loomy has three planes: the CAccount host (signing in, every request
 // HMAC-signed), the integration gateway (points and the daily first-login,
@@ -597,6 +598,92 @@ function checkinOf(payload) {
   }
 }
 
+// ---- the newcomer tasks, a one-time purse beside the daily grant -------------------
+// Beside the daily grant Loomy hangs eight one-off newcomer tasks, 10000
+// points in all: one query reads which are done, one idempotent write
+// claims each undone one — the upstream judges completion its own way and
+// answers a repeat alreadyCompleted, so claiming twice cannot pay twice.
+// The check-in claims what is pending behind the daily grant, one claim at
+// a time and highest value first (an upstream that dislikes same-account
+// concurrency is asked serially; a failure mid-way leaves the small ones,
+// not the big ones), and nothing that refuses among these one-time claims
+// is allowed to touch the daily claim's own result. The card carries the
+// still-claimable sum as an aside row while any of it stands — a purse
+// spent once has no window to consume, so it never drives the percentages
+// — and the read is cached for the run, the card refreshing far more
+// often than the tasks change; the check-in's claim round clears it.
+
+const TASKS_PATH = "/api/v1/onboarding/tasks"
+const TASK_COMPLETE_PATH = "/api/v1/onboarding/tasks/complete"
+
+// the eight tasks in the claim order itself, value first; the keys and
+// values are the client's own registry spelling, and a task the answer
+// never names counts as not yet claimed — an upstream that changes its
+// board answers unknown keys, which read as nothing rather than an error
+const ONBOARDING_TASKS = [
+  { key: "share_soul", title: "分享搭子给朋友", points: 2000 },
+  { key: "generate_ppt", title: "生成第一份 PPT", points: 1500 },
+  { key: "install_skill", title: "安装一个技能", points: 1500 },
+  { key: "create_soul", title: "创建第一个搭子", points: 1500 },
+  { key: "pick_skill", title: "选择一个技能", points: 1000 },
+  { key: "set_schedule", title: "设置定时任务", points: 1000 },
+  { key: "configure_remote", title: "配置远程控制", points: 1000 },
+  { key: "first_message", title: "发送第一条消息", points: 500 },
+]
+
+// the tasks answer read into what there is to claim
+function onboardingStateOf(payload) {
+  const data = plainObject(payload?.data?.data) ?? plainObject(payload?.data) ?? {}
+  const done = plainObject(data.tasks) ?? {}
+  return ONBOARDING_TASKS.filter((task) => done[task.key] !== true)
+}
+
+// one claim round, best-effort by contract: whatever refuses here answers
+// an empty tail, and a word of it never reaches the daily claim's own
+// wording. Only a success that is not already a repeat counts its points
+async function claimOnboarding(access) {
+  try {
+    const payload = await tokenGet(TASKS_PATH, access)
+    const code = businessCode(payload)
+    if (code !== SUCCESS || AUTH_CODES.has(code)) return ""
+    let gained = 0
+    let claimed = 0
+    for (const task of onboardingStateOf(payload)) {
+      const answer = await tokenPost(TASK_COMPLETE_PATH, { key: task.key }, access)
+      if (businessCode(answer) === SUCCESS && pointsFloor(answer)?.alreadyCompleted !== true) {
+        gained += task.points
+        claimed += 1
+      }
+    }
+    return claimed > 0 ? `，新手任务 +${gained}（${claimed} 项）` : ""
+  } catch {
+    return ""
+  }
+}
+
+// the card's aside row while anything stands to claim; one read per
+// session per run — a refusal caches as no row rather than retrying on
+// every render, and the check-in's claim round clears the note
+const onboardingAsides = new Map()
+
+async function onboardingAsideOf(access) {
+  if (onboardingAsides.has(access)) return onboardingAsides.get(access)
+  let aside
+  try {
+    const payload = await tokenGet(TASKS_PATH, access)
+    const code = businessCode(payload)
+    if (code === SUCCESS && !AUTH_CODES.has(code)) {
+      const pending = onboardingStateOf(payload)
+      if (pending.length) {
+        const sum = pending.reduce((n, task) => n + task.points, 0)
+        aside = { name: "新手任务", used: 0, display: `可领 ${sum} 积分（${pending.length} 项）`, aside: true }
+      }
+    }
+  } catch {}
+  onboardingAsides.set(access, aside)
+  return aside
+}
+
 // ---- the chat forwarding and the error translation --------------------------------
 
 // a sign-in the gateway has ended: a phone-code session has no way to renew
@@ -764,12 +851,17 @@ export const LoomyAuthPlugin = async ({ client }) => ({
           const text = upstreamMessage(payload)
           throw new Error(text ? `积分查询失败：${text}` : `积分查询失败（上游 code=${code}）`)
         }
-        return {
+        const card = {
           plan: "Loomy",
           ...usageOf(payload, await quotaNoteOf(String(auth.accountId ?? ""))),
           user: auth.accountId || "Loomy 账号",
           signIn: "kept",
         }
+        // the one-time newcomer purse rides as an aside row while any of
+        // it stands to claim — a refusal answers no row at all
+        const aside = await onboardingAsideOf(access)
+        if (aside) card.windows = [...card.windows, aside]
+        return card
       } catch (e) {
         // a dead sign-in keeps its marker (thrown here or by the gateway's
         // own 401/403); every other failure is a kept sign-in's bad answer
@@ -787,7 +879,13 @@ export const LoomyAuthPlugin = async ({ client }) => ({
         // the grant's size, kept for the card before the claim is read — a
         // note that must never break the claim itself
         await noteQuota(String(auth.accountId ?? ""), pickNumber(pointsFloor(payload)?.dailyQuota))
-        return checkinOf(payload)
+        const claim = checkinOf(payload)
+        // the newcomer tasks, claimed behind the daily grant and beside its
+        // wording — best-effort, one at a time, and never a word about a
+        // failure among them; the round clears the card's aside note
+        const tail = await claimOnboarding(access)
+        onboardingAsides.set(access, undefined)
+        return tail ? { ...claim, message: claim.message + tail } : claim
       } catch (e) {
         return { outcome: "failed", message: e?.message ?? String(e), ...(e?.signIn ? { signIn: e.signIn } : {}) }
       }
@@ -846,6 +944,10 @@ export const _internal = {
   quotaCacheFile,
   quotaNoteOf,
   noteQuota,
+  ONBOARDING_TASKS,
+  onboardingStateOf,
+  claimOnboarding,
+  onboardingAsideOf,
   splitRateSuffix,
   parseModels,
   configModelOf,

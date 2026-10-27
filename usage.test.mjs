@@ -104,6 +104,25 @@ test("the card off the fake, the older answer's pair on it — the pair still wi
   assert.ok(!r.headers["content-md5"])
 })
 
+test("the card carries the still-claimable newcomer purse as an aside row", async () => {
+  const auth = async () => ({ access: "tok-aside", accountId: "135****5000" })
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 3011 } }))
+  // share_soul alone stands, 2000 points; the other seven are done
+  const done = Object.fromEntries(_internal.ONBOARDING_TASKS.filter((t) => t.key !== "share_soul").map((t) => [t.key, true]))
+  f.route("GET /api/v1/onboarding/tasks", () => json({ code: "000000", data: { tasks: { ...done, share_soul: false } } }))
+  const card = await hooks.auth.usage(auth)
+  assert.deepEqual(card.windows.at(-1), { name: "新手任务", used: 0, display: "可领 2000 积分（1 项）", aside: true })
+  // the read is cached for the run: a second render asks the records alone
+  await hooks.auth.usage(auth)
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks").length, 1)
+  // a board that refuses answers no row at all — and no retry either
+  f.route("GET /api/v1/onboarding/tasks", () => json({}, 500))
+  const bare = await hooks.auth.usage(async () => ({ access: "tok-bare", accountId: "135****5001" }))
+  assert.equal(bare.windows.length, 2)
+  await hooks.auth.usage(async () => ({ access: "tok-bare", accountId: "135****5001" }))
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks").length, 2) // one refusal, cached
+})
+
 test("not signed in answers {error} alone, asking nothing", async () => {
   assert.deepEqual(await hooks.auth.usage(async () => ({})), { error: "not signed in" })
   assert.equal(f.seen.length, 0)

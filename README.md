@@ -109,7 +109,11 @@ The usage card shows the two wallets Loomy keeps:
   to write it (the **Daily check-in** switch, off by default, or the manual
   **Check in now** button): until the first one the card shows the remaining
   alone; no share is invented and no quota is assumed;
-- the permanent row set aside: the permanent balance, which has no window.
+- the permanent row set aside: the permanent balance, which has no window;
+- the newcomer row beside them: the one-time newcomer tasks (10000 points
+  in all) while any stand unclaimed — an aside, never a percentage: a
+  purse spent once has no window to consume. The check-in claims them;
+  until it runs, the row says what is still claimable.
 
 Loomy has no dedicated balance or check-in endpoint: the summary rides on the
 points-records call, and the "check-in" is the first-login call the Loomy
@@ -127,6 +131,12 @@ switch lives in Settings → Usage → Plugins, ships with **magpie ≥ v0.1.108
 and is **off by default** — turn it on and magpie runs the refresh once a day
 per account (only a failed outcome retries that day). The **Check in now**
 button runs it then and there. OpenCode doesn't call this hook.
+
+The same run also claims the one-time newcomer tasks (the eight worth 10000
+points in all): serially, highest value first, idempotent — and a refusal
+among them never touches the daily claim's own result. The first check-in of
+a fresh account typically refreshes the grant and lands the newcomer purse
+in one go.
 
 ## Environment overrides
 
@@ -166,10 +176,14 @@ can point them at a fake of their own.
   desktop gateway's tool_calls streaming has no recorded real-machine run
   behind it; it is the first thing to check with your agent's tool loop. If
   it fails, the toolcall bit gets turned down in a future release.
-- **Onboarding newcomer tasks are not claimed.** The eight one-off tasks
-  (10000 points in all) on Loomy's onboarding board are left to the Loomy
-  client; only the daily first-login is here. Claiming them is a possible
-  second iteration.
+- **The newcomer tasks are claimed by the check-in.** The eight one-off
+  tasks (10000 points in all) are queried and claimed on every check-in —
+  serially, highest value first, and idempotent: a repeat answers
+  `alreadyCompleted` and pays nothing twice. A refusal among them never
+  touches the daily claim's own result, and their still-claimable sum shows
+  on the card as an aside row while any stands. The upstream judges
+  completion its own way; the keys and values are the client's own task
+  registry's.
 
 ## Disclaimer
 

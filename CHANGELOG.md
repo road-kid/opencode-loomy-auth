@@ -2,11 +2,19 @@
 
 ## 0.1.3 — 2026-10-28
 
+### Added
+
+- The newcomer tasks (onboarding): the eight one-off tasks worth 10000
+  points in all are claimed by the check-in — serially, highest value
+  first, idempotent on the upstream's `alreadyCompleted`; a refusal among
+  them never touches the daily claim's own result. The usage card carries
+  an aside row with the still-claimable sum while any of it stands (one
+  read per session per run; the check-in's round clears it).
+
 ### Changed
 
-- Docs only: the README's model table records the catalog the gateway
-  served on 2026-10-28, and the docs' wording is tightened throughout. The
-  code is unchanged from 0.1.2.
+- Docs: the README's model table records the catalog the gateway served on
+  2026-10-28, and the docs' wording is tightened throughout.
 
 ## 0.1.2 — 2026-10-28
 
