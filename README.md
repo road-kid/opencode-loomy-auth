@@ -59,26 +59,35 @@ Signed in, the model list is read live from `GET /api/v1/models`: capabilities
 become the tool / reasoning / image bits, the context and output limits pass
 through, and every model carries the low/medium/high reasoning-effort
 variants. The gateway prints each model's point rate as a suffix on its
-display name (`DeepSeek V4 Flash 0731 (x3.0)`); the plugin splits that off and
-keeps it out of the name.
+display name (`MiniMax M3 （x4.0）` — ASCII and full-width brackets both
+occur); the plugin splits that off and keeps it out of the name.
 
-The live list is the source of truth. The built-in table below is only a
-fallback — a guide from the first install until the live list answers. Without
-a session, on an empty answer or a failed ask, it stands in, and the live list
-overwrites it the moment it answers.
+The live list is the source of truth and wins the moment it answers. Without
+a session, on an empty answer or a failed ask, the plugin falls back to the
+built-in table in the code — a snapshot from an earlier generation of the
+catalog that still carries retired ids, so read it as a floor, not a guide.
+The table below is what the gateway itself served on **2026-10-28**, kept
+here as a field guide rather than the fallback's contents:
 
-| Model | Display name | Point rate |
-|---|---|---|
-| `deepseek-v4-flash-0731` | DeepSeek V4 Flash 0731 | x3.0 |
-| `GLM-5.3-Flash` | GLM 5.3 Flash | x0.8 |
-| `spark-x` | Spark X2.5 (thinking) | x0.1 |
-| `MiniMax-M3` | — | — |
-| `Kimi-k2.6` | — | — |
-| `qwen-3.8-max` | — | — |
-| `qwen3.8-flash` | — | — |
-| `doubao-seed-2.0-mini` | — | — |
-| `mimo-v2.5` | — | — |
-| `qwen3.5-flash` | — | — |
+| Model | Display name | Rate | Notes |
+|---|---|---|---|
+| `spark-x2.6` | Spark-X2.6 正式版(限时免费) | x0.0 | thinking |
+| `spark-x` | Spark-X2.5（限时免费） | x0.0 | thinking |
+| `DeepSeek-V4.1-Flash` | DeepSeek V4.1 Flash | x2.0 | thinking, image |
+| `MiniMax-M3` | MiniMax M3 | x4.0 | thinking, image |
+| `Kimi-k2.6` | Kimi k2.6 | x6.5 | thinking, image |
+| `qwen-3.8-max` | Qwen 3.8 Max | x12.0 | thinking |
+| `GLM-5.3-Flash` | GLM 5.3 Flash | x0.8 | thinking, image |
+| `qwen3.8-flash` | qwen 3.8 flash | x0.8 | thinking, image |
+| `mimo-v2.5` | MiMo V2.5 | x3.3 | thinking, image, audio |
+| `auto` | 自动 · 均衡 | — | the gateway's own router |
+| `Hy-Image-3.5-preview` | Hy image 3.5 preview | — | image generation |
+| `doubao-seedream-5-lite` | Doubao seedream 5 lite | — | image generation |
+| `qwen-image-3.0-pro` | qwen image 3.0 pro | — | image generation |
+
+The three image-generation rows declare `output_modalities: ["image"]` —
+they draw pictures rather than answer in text, and how their answers ride
+the chat endpoint is unverified.
 
 ## Usage
 
@@ -135,15 +144,19 @@ can point them at a fake of their own.
 - **The point rate exists only as the display name's suffix.** Loomy ships no
   structured rate field; the plugin splits the suffix off but cannot verify
   any amount against the catalog.
-- **Image input differs per model family.** The deepseek models read only the
-  gateway's private `<image_base64>…</image_base64>` marker (a standard
-  `image_url` is cut off as text); the GLM models are the opposite — only
-  `image_url`, and the marker breaks them. The rewrite is a planned second
-  iteration; until it lands, image input is reliable on the GLM family alone.
+- **Image input differs per model family.** Verified on the earlier catalog's
+  `deepseek-v4-flash-0731` (since retired): it read only the gateway's
+  private `<image_base64>…</image_base64>` marker (a standard `image_url` is
+  cut off as text), while the GLM models are the opposite — only `image_url`,
+  and the marker breaks them. The rewrite is a planned second iteration;
+  until it lands, image input is reliable on the GLM family alone, and the
+  newer `DeepSeek-V4.1-Flash` declares image input whose shape on this
+  gateway is unverified.
 - **`reasoning_effort` is ignored on non-thinking models.** Every model
   carries the low/medium/high variants the way the client hangs them; the
   upstream drops the field on the models that don't think — a known behavior.
-  The client's own catalog flags `spark-x` as the thinking one.
+  Which models think is whatever the live catalog declares — on 2026-10-28
+  most text models did, not only the spark pair.
 - **Streaming tool calls are not yet verified on a real account.** The
   desktop gateway's tool_calls streaming has no recorded real-machine run
   behind it; it is the first thing to check with your agent's tool loop. If
