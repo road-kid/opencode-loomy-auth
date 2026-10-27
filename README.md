@@ -91,8 +91,10 @@ The usage card shows the two wallets Loomy keeps:
   *remaining* (`dailyQuota` − `dailyConsumed`), so the percentage needs the
   grant's size: the pair the answer carries when it carries one, else the
   `dailyQuota` the check-in notes per account — a small `.loomy-quota.json`
-  beside the plugin keeps the note across restarts. Without a size the card
-  shows the remaining alone; no share is invented and no quota is assumed;
+  beside the plugin keeps the note across restarts, and it takes a check-in
+  to write it (the **Daily check-in** switch, off by default, or the manual
+  **Check in now** button): until the first one the card shows the remaining
+  alone; no share is invented and no quota is assumed;
 - the permanent row set aside: the permanent balance, which has no window.
 
 Loomy has no dedicated balance or check-in endpoint: the summary rides on the
