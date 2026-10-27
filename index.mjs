@@ -34,8 +34,9 @@ const xfyunBase = () => (process.env.LOOMY_XFYUN_BASE_URL || "https://account.xf
 const integrationBase = () => (process.env.LOOMY_POINTS_BASE_URL || "https://loomyad.xunfei.cn").replace(/\/+$/, "")
 // the model gateway: OpenAI-compatible /models and /chat/completions
 const apiBase = () => integrationBase() + "/api/v1"
-// the signing pair Loomy's own installer ships (a public client fingerprint,
-// not a user credential); the environment can override either half
+// the signing pair the account plane's requests sign with; both halves are
+// read when a sign-in is about to ask, so the environment can override
+// either half at any time
 const keyId = () => process.env.LOOMY_XFYUN_ACCESS_KEY_ID || "2thryby66wxi53sk"
 const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrbawz683wf5r3m2snrwj868r"
 
@@ -201,9 +202,8 @@ function providerModelOf(m, providerID = ID) {
 // Every request to the account host is HMAC-SHA1 signed, the way the client's
 // electron/xfyun/sign.js signs one: nine lines (the method, the escaped path,
 // an always-empty query line, the body's MD5, the content type, the date, the
-// nonce, and two always-empty header lines) HMAC'd with the installer's own
-// key pair and sent as "account {id}:{base64}" — a client fingerprint
-// replicated, not a user credential.
+// nonce, and two always-empty header lines) HMAC'd with the configured key
+// pair and sent as "account {id}:{base64}".
 
 const CONTENT_TYPE = "application/json" // the string-to-sign's fifth line, and the requests' own content type
 

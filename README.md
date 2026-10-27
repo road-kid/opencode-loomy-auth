@@ -37,10 +37,15 @@ The sign-in is Loomy's phone-code one, in two steps:
   six-digit code box, and the plugin trades the code for the session.
 
 The session lasts fourteen days and Loomy offers no refresh. When it ends
-(HTTP 401/403, or the business codes `020002`/`100002`), the plugin marks the
-sign-in expired and magpie asks for a new SMS sign-in — there is nothing to
-renew. The account's id is the masked phone (`138****8000`); the Loomy userid
+(HTTP 401/403, or the business codes `020002`/`100002`), the plugin marks
+the sign-in expired and magpie asks for a new SMS sign-in — there is nothing
+to renew. The account's id is the masked phone (`138****8000`); the Loomy userid
 is kept with the credential.
+
+The account host checks an HMAC-SHA1 signature on both sign-in calls; the
+plugin signs with a built-in pair that either environment variable can
+override. The signature belongs to the account plane alone — the gateway
+planes never sign.
 
 ## Requests
 
@@ -132,8 +137,8 @@ can point them at a fake of their own.
 |---|---|---|
 | `LOOMY_XFYUN_BASE_URL` | `https://account.xfinfr.com` | the account host (send / check code) |
 | `LOOMY_POINTS_BASE_URL` | `https://loomyad.xunfei.cn` | the integration host — points, first-login, and `/api/v1` (models and chat) |
-| `LOOMY_XFYUN_ACCESS_KEY_ID` | `2thryby66wxi53sk` | the signing pair's id |
-| `LOOMY_XFYUN_ACCESS_KEY_SECRET` | `zsak6eadrbawz683wf5r3m2snrwj868r` | the signing pair's secret |
+| `LOOMY_XFYUN_ACCESS_KEY_ID` | built-in (overridable) | the account-plane signature's key id |
+| `LOOMY_XFYUN_ACCESS_KEY_SECRET` | built-in (overridable) | the account-plane signature's key secret |
 | `LOOMY_XFYUN_APP_ID` | `GM3LOOMY` | the request envelope's appid |
 | `LOOMY_QUOTA_CACHE_FILE` | `.loomy-quota.json` beside the plugin | where the check-in's noted daily quota persists across restarts |
 
@@ -170,13 +175,9 @@ can point them at a fake of their own.
 
 This is an unofficial community package. It has nothing to do with iFlytek or
 Loomy. The implementation is reverse-engineered from the desktop client's own
-behavior and measured against it, for personal study and research. The
-signing pair is a client fingerprint, not a credential: every request to
-Loomy's account host is HMAC-SHA1 signed with a key pair that ships inside
-Loomy's own installer to every client — public by design. This package
-replicates it for compatibility, the way it replicates the request envelope.
-Your phone number, your code and your session go only to Loomy's own hosts.
-The points are for Loomy's own services; Loomy's terms decide where else they
+behavior and measured against it, for personal study and research. Your
+phone number, your code and your session go only to Loomy's own hosts. The
+points are for Loomy's own services; Loomy's terms decide where else they
 may be used, and iFlytek hasn't approved that. The risk to the account is
 yours. An upstream protocol change can break the package at any time.
 
