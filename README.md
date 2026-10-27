@@ -1,5 +1,7 @@
 # @roadkid/opencode-loomy-auth
 
+English | [中文](./README.zh.md)
+
 An [OpenCode](https://opencode.ai) / [magpie](https://usemagpie.ai) provider
 plugin for a Loomy (iFlytek) account. You sign in with Loomy's phone-code
 sign-in, your chats go through Loomy's OpenAI-compatible model gateway, and
@@ -115,7 +117,8 @@ The usage card shows the two wallets Loomy keeps:
   itself — once, the call being idempotent for the day (the client makes it
   on every login) — so a fresh install heals on its first render instead of
   waiting for the next check-in; no share is invented and no quota is
-  assumed. The window carries the cycle's exact reset
+  assumed. The wording follows the interface language the host keeps in
+  its settings (Chinese, or English beside it). The window carries the cycle's exact reset
   moment — the next Beijing midnight of the day the check-in's answer named
   — so the card counts down to the real refill, not a guessed one;
 - the permanent row set aside: the permanent balance, which has no window;

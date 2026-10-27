@@ -49,7 +49,7 @@ test("used is the grant's consumed share; the amounts live in display (F1)", () 
   assert.equal(grant.used, 70) // (5000-1500)/5000, a percentage
   assert.equal(grant.span, 86400) // a day: the grant comes back with the calendar
   assert.equal(grant.display, "1500 / 5000 积分")
-  assert.deepEqual(permanent, { name: "永久积分", used: 0, display: "100 积分", unit: "积分", aside: true }) // a status row, always zero
+  assert.deepEqual(permanent, { name: "永久积分", used: 0, display: "100 积分", unit: "credits", aside: true }) // a status row, always zero
 })
 
 test("a grant without a size shows its remaining alone, zero used (issue #1: no pair comes back)", () => {
@@ -91,8 +91,8 @@ test("the card off the fake, the older answer's pair on it — the pair still wi
     plan: "Loomy",
     balance: "200 积分",
     windows: [
-      { name: "每日赠送", used: 75, span: 86400, display: "20 / 80 积分", amount: 60, limit: 80, unit: "积分", resetsAt: "2026-10-28T16:00:00.000Z" },
-      { name: "永久积分", used: 0, display: "120 积分", unit: "积分", aside: true },
+      { name: "每日赠送", used: 75, span: 86400, display: "20 / 80 积分", amount: 60, limit: 80, unit: "credits", resetsAt: "2026-10-28T16:00:00.000Z" },
+      { name: "永久积分", used: 0, display: "120 积分", unit: "credits", aside: true },
     ],
     user: "138****8000",
     signIn: "kept",
@@ -122,6 +122,32 @@ test("the card carries the still-claimable newcomer purse as an aside row", asyn
   assert.equal(bare.windows.length, 2)
   await hooks.auth.usage(async () => ({ access: "tok-bare", accountId: "135****5001" }))
   assert.equal(f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks").length, 2) // one refusal, cached
+})
+
+test("the words follow the host's settings.json lang — en beside zh", async () => {
+  // a host folder of the user's own: lang en, the shape magpie writes
+  const dir = join(tmpdir(), "loomy-lang-" + randomUUID())
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ lang: "en" }))
+  const was = _internal.noteHostDirectory(dir)
+  try {
+    const w = _internal.usageOf({ data: { balance: 0, dailyBalance: 3011 } }, 5000, "2026-10-28")
+    const [grant, permanent] = w.windows
+    assert.equal(w.balance, "3011 credits")
+    assert.equal(grant.name, "Daily grant")
+    assert.equal(grant.display, "3011 / 5000 credits")
+    assert.equal(grant.unit, "credits")
+    assert.equal(permanent.name, "Permanent points")
+    assert.equal(_internal.checkinOf({ code: "000000", data: { alreadyProcessed: true, dailyBalance: 3011, dailyQuota: 5000 } }).message, "Already refreshed today (3011 / 5000 credits)")
+  } finally {
+    _internal.noteHostDirectory("")
+    rmSync(dir, { recursive: true, force: true })
+  }
+  // and with no host folder the plugin's own words stand
+  const zh = _internal.usageOf({ data: { balance: 0, dailyBalance: 3011 } }, 5000, "2026-10-28")
+  assert.equal(zh.windows[0].name, "每日赠送")
+  assert.equal(zh.balance, "3011 积分")
 })
 
 test("the reset moment is the next Beijing midnight of the cycle the note names", () => {

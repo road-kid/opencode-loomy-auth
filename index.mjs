@@ -20,7 +20,9 @@
 // them at fakes of their own by setting the environment.
 
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const ID = "loomy"
@@ -611,6 +613,70 @@ function beijingCycleResetAt(cycleDate, now = Date.now()) {
   return new Date(reset).toISOString()
 }
 
+// ---- the words, in the UI's language ----------------------------------------------
+// The host renders a window's name and unit through its own translator —
+// unknown keys pass through as they are — and shows display and the
+// check-in's message verbatim. The host hands the plugin its data folder as
+// the plugin input's directory, and the interface language sits in
+// settings.json there; read at ask-time, so a language change follows at
+// once. zh keeps the plugin's own words; anything else — a missing file, an
+// unreadable one included — takes the English strings.
+
+const I18N = {
+  zh: {
+    daily: "每日赠送",
+    permanent: "永久积分",
+    newcomer: "新手任务",
+    credits: "积分",
+    noQuota: n => `剩余 ${n} 积分`,
+    zero: "0 积分",
+    now: d => `当前 ${d}`,
+    refreshedToday: r => (r ? `今日已刷新（${r}）` : "今日已刷新"),
+    claimedGain: (gain, daily) => (daily !== undefined ? `每日赠送积分已刷新（+${gain}，当前 ${daily}）` : `每日赠送积分已刷新（+${gain}）`),
+    claimedRest: r => `每日赠送积分已刷新（${r}）`,
+    claimed: "每日赠送积分已刷新",
+    refreshFailed: t => `每日积分刷新失败：${t}`,
+    refreshFailedCode: c => `每日积分刷新失败（上游 code=${c}）`,
+    claimable: (sum, n) => `可领 ${sum} 积分（${n} 项）`,
+    claimTail: (gain, n) => `，新手任务 +${gain}（${n} 项）`,
+  },
+  en: {
+    daily: "Daily grant",
+    permanent: "Permanent points",
+    newcomer: "Newcomer tasks",
+    credits: "credits",
+    noQuota: n => `${n} credits remaining`,
+    zero: "0 credits",
+    now: d => `${d} credits now`,
+    refreshedToday: r => (r ? `Already refreshed today (${r})` : "Already refreshed today"),
+    claimedGain: (gain, daily) => (daily !== undefined ? `Daily grant refreshed (+${gain}, ${daily} credits now)` : `Daily grant refreshed (+${gain})`),
+    claimedRest: r => `Daily grant refreshed (${r})`,
+    claimed: "Daily grant refreshed",
+    refreshFailed: t => `Daily refresh failed: ${t}`,
+    refreshFailedCode: c => `Daily refresh failed (upstream code=${c})`,
+    claimable: (sum, n) => `${sum} credits claimable (${n} tasks)`,
+    claimTail: (gain, n) => `, newcomer tasks +${gain} (${n} claimed)`,
+  },
+}
+
+// the interface language: settings.json sits in the folder the host hands
+// the plugin as its input's directory (magpie's own data folder), captured
+// at factory time; an empty string clears it (the tests' way back)
+const noteHostDirectory = (directory) => {
+  hostDirectory = typeof directory === "string" ? directory : ""
+}
+let hostDirectory = ""
+
+function wordsOf() {
+  let lang = "zh" // no host folder — OpenCode, the tests — keeps the plugin's own words
+  if (hostDirectory) {
+    try {
+      lang = JSON.parse(readFileSync(join(hostDirectory, "settings.json"), "utf8"))?.lang ?? "zh"
+    } catch {}
+  }
+  return typeof lang === "string" && lang.toLowerCase().startsWith("zh") ? I18N.zh : I18N.en
+}
+
 // usageOf is the card. The two wallets Loomy keeps — the permanent balance
 // and the daily grant — add into the one balance line, and the grant takes
 // the window. used is a percentage 0-100; the amounts live in display
@@ -637,26 +703,27 @@ function usageOf(payload, notedQuota, cycleDate) {
   const share = remaining !== undefined && quota !== undefined && quota > 0 ? (quota - remaining) / quota : undefined
   const named = pickNumber(data.availableBalance) ?? pickNumber(data.currentBalance)
   const total = named ?? (permanent + (pickNumber(data.dailyBalance) ?? 0))
+  const w = wordsOf()
   return {
-    balance: `${Math.round(total * 100) / 100} 积分`,
+    balance: `${Math.round(total * 100) / 100} ${w.credits}`,
     windows: [
       {
-        name: "每日赠送",
+        name: w.daily,
         used: share !== undefined ? Math.max(0, Math.min(100, Math.round(share * 100))) : 0,
         span: 86400, // a day: the grant comes back with the calendar
         display:
           share !== undefined
-            ? `${remaining} / ${quota} 积分`
+            ? `${remaining} / ${quota} ${w.credits}`
             : remaining !== undefined
-              ? `剩余 ${remaining} 积分`
-              : "0 积分",
+              ? w.noQuota(remaining)
+              : w.zero,
         // amount is the consumed share — the host's own rendering pairs it
         // with limit as what is left, so a remaining here would show the
         // day's usage as if it were what is left
-        ...(share !== undefined ? { amount: Math.round((quota - remaining) * 100) / 100, limit: quota, unit: "积分" } : {}),
+        ...(share !== undefined ? { amount: Math.round((quota - remaining) * 100) / 100, limit: quota, unit: "credits" } : {}),
         resetsAt: beijingCycleResetAt(cycleDate),
       },
-      { name: "永久积分", used: 0, display: `${permanent} 积分`, unit: "积分", aside: true },
+      { name: w.permanent, used: 0, display: `${permanent} ${w.credits}`, unit: "credits", aside: true },
     ],
   }
 }
@@ -676,15 +743,17 @@ function checkinOf(payload) {
   }
   if (code !== SUCCESS) {
     const text = upstreamMessage(payload)
-    return { outcome: "failed", message: text ? `每日积分刷新失败：${text}` : `每日积分刷新失败（上游 code=${code}）` }
+    const w = wordsOf()
+    return { outcome: "failed", message: text ? w.refreshFailed(text) : w.refreshFailedCode(code) }
   }
   const data = plainObject(payload?.data?.data) ?? plainObject(payload?.data) ?? {}
   const daily = pickNumber(data.dailyBalance)
   const quota = pickNumber(data.dailyQuota)
   const consumed = pickNumber(data.dailyConsumed)
-  const rest = daily !== undefined && quota !== undefined ? `${daily} / ${quota} 积分` : daily !== undefined ? `当前 ${daily}` : ""
+  const w = wordsOf()
+  const rest = daily !== undefined && quota !== undefined ? `${daily} / ${quota} ${w.credits}` : daily !== undefined ? w.now(daily) : ""
   if (data.alreadyProcessed === true) {
-    return { outcome: "done", message: rest ? `今日已刷新（${rest}）` : "今日已刷新" }
+    return { outcome: "done", message: w.refreshedToday(rest) }
   }
   const gain = quota !== undefined && consumed !== undefined ? quota - consumed : undefined
   return {
@@ -692,10 +761,10 @@ function checkinOf(payload) {
     ...(gain !== undefined && gain > 0 ? { credit: gain } : {}),
     message:
       gain !== undefined && gain > 0
-        ? `每日赠送积分已刷新（+${gain}${daily !== undefined ? `，当前 ${daily}` : ""}）`
+        ? w.claimedGain(gain, daily)
         : rest
-          ? `每日赠送积分已刷新（${rest}）`
-          : "每日赠送积分已刷新",
+          ? w.claimedRest(rest)
+          : w.claimed,
   }
 }
 
@@ -756,7 +825,7 @@ async function claimOnboarding(access) {
         claimed += 1
       }
     }
-    return claimed > 0 ? `，新手任务 +${gained}（${claimed} 项）` : ""
+    return claimed > 0 ? wordsOf().claimTail(gained, claimed) : ""
   } catch {
     return ""
   }
@@ -777,7 +846,8 @@ async function onboardingAsideOf(access) {
       const pending = onboardingStateOf(payload)
       if (pending.length) {
         const sum = pending.reduce((n, task) => n + task.points, 0)
-        aside = { name: "新手任务", used: 0, display: `可领 ${sum} 积分（${pending.length} 项）`, aside: true }
+        const ws = wordsOf()
+        aside = { name: ws.newcomer, used: 0, display: ws.claimable(sum, pending.length), aside: true }
       }
     }
   } catch {}
@@ -876,7 +946,10 @@ async function answer(res) {
   return new Response(text, { status: res.status, statusText: res.statusText, headers })
 }
 
-export const LoomyAuthPlugin = async ({ client }) => ({
+export const LoomyAuthPlugin = async (input) => {
+  noteHostDirectory(input?.directory)
+  const { client } = input ?? {}
+  return {
   // the provider entry a fresh config needs — name, npm package, api base
   // and the fallback model table keyed by id — each filled only where the
   // config doesn't say its own
@@ -1018,8 +1091,9 @@ export const LoomyAuthPlugin = async ({ client }) => ({
         return p.models
       }
     },
-  },
-})
+  }
+  }
+}
 
 // for tests
 export const _internal = {
@@ -1049,6 +1123,8 @@ export const _internal = {
   usageOf,
   checkinOf,
   quotaCacheFile,
+  noteHostDirectory,
+  wordsOf,
   quotaNoteOf,
   noteQuota,
   rememberQuota,

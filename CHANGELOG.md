@@ -14,6 +14,7 @@
 
 ### Added
 
+- The card speaks the interface language: a window name, unit and the check-in wording follow the lang in the host settings.json (zh keeps 每日赠送/永久积分, anything else takes English strings); the unit rides the host dictionary either way.
 - A usage card that finds no quota note anywhere — a fresh install, an
   upgrade that wiped the file, a credential that lost its fields — asks
   the first-login answer itself, once per run: the call is idempotent for
@@ -28,6 +29,8 @@
 - A model the upstream itself declares free (the words 免费, or a rate of
   exactly `x0.0`) carries a `free` bit; no rate at all is not free. Rows
   that aren't chat models — the image generators — are left off the list.
+- A Chinese README (`README.zh.md`), translating the English one; the
+  English `README.md` stays the default.
 
 ## 0.1.3 — 2026-10-28
 
