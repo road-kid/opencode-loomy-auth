@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 — 2026-10-28
+
+### Changed
+
+- Docs only: the README's model table records the catalog the gateway
+  served on 2026-10-28, and the docs' wording is tightened throughout. The
+  code is unchanged from 0.1.2.
+
 ## 0.1.2 — 2026-10-28
 
 ### Changed
