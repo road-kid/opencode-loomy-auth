@@ -84,17 +84,25 @@ overwrites it the moment it answers.
 
 The usage card shows the two wallets Loomy keeps:
 
-- the balance line: permanent + daily grant, added together;
+- the balance line: permanent + daily grant, added together (the answer's
+  own total when it names one);
 - a daily-grant window: the grant's consumed share as its percentage, with
-  what is left over the limit beside it;
+  what is left over the limit beside it. `dailyBalance` is the grant's
+  *remaining* (`dailyQuota` − `dailyConsumed`), so the percentage needs the
+  grant's size: the pair the answer carries when it carries one, else the
+  `dailyQuota` the check-in notes per account — a small `.loomy-quota.json`
+  beside the plugin keeps the note across restarts. Without a size the card
+  shows the remaining alone; no share is invented and no quota is assumed;
 - the permanent row set aside: the permanent balance, which has no window.
 
 Loomy has no dedicated balance or check-in endpoint: the summary rides on the
 points-records call, and the "check-in" is the first-login call the Loomy
 client itself makes on every login. The server renews the daily grant once a
-day and answers a repeat the same way, so every success reports *claimed*; the
-answer carries no "granted this time" figure, so none is promised — the daily
-balance, when the answer carries it, goes into the message.
+day, and the answer's `alreadyProcessed` tells the day's renewal from a
+repeat: a repeat reports *done* ("今日已刷新", with what is left of the grant),
+and the day's first reports *claimed* — with the gain as its credit when the
+answer carries the whole arithmetic (`dailyQuota` − `dailyConsumed`), and the
+remaining in the message otherwise.
 
 ## Check-in
 
@@ -116,6 +124,7 @@ can point them at a fake of their own.
 | `LOOMY_XFYUN_ACCESS_KEY_ID` | `2thryby66wxi53sk` | the signing pair's id |
 | `LOOMY_XFYUN_ACCESS_KEY_SECRET` | `zsak6eadrbawz683wf5r3m2snrwj868r` | the signing pair's secret |
 | `LOOMY_XFYUN_APP_ID` | `GM3LOOMY` | the request envelope's appid |
+| `LOOMY_QUOTA_CACHE_FILE` | `.loomy-quota.json` beside the plugin | where the check-in's noted daily quota persists across restarts |
 
 ## Known limits
 

@@ -1,14 +1,24 @@
-// The daily first-login claim: every success is claimed (the server renews
-// the grant once a day and answers a repeat the same way, so "already today"
-// is not a state it can tell apart), the answer carries no granted-this-time
-// field so no credit is ever promised (F2) — the daily balance, when the
-// answer carries it at all, goes into the wording — and a dead sign-in keeps
-// its marker while any other failure is just a failed claim.
+// The daily first-login claim: the answer's alreadyProcessed tells the day's
+// renewal from a repeat — a repeat is done, not claimed again — and the day's
+// first is claimed, its credit promised only when the answer carries the
+// whole arithmetic (dailyQuota − dailyConsumed; the dailyBalance it carries
+// is the remaining, not the gain — issue #1's real captures are the
+// fixtures). The claim notes the quota for the card's percentage, in the run
+// and in the cache file. A dead sign-in keeps its marker while any other
+// failure is just a failed claim.
 import "./nonet.mjs"
 import { afterEach, beforeEach, test } from "node:test"
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { LoomyAuthPlugin, _internal } from "./index.mjs"
 import { fakeLoomy, json, pointAt } from "./fake.mjs"
+
+// the quota cache pointed at a throwaway, so a run of these tests never
+// touches a note that belongs to a real install
+process.env.LOOMY_QUOTA_CACHE_FILE = join(tmpdir(), `loomy-quota-checkin-${randomUUID()}.json`)
 
 let f
 let restore
@@ -23,11 +33,11 @@ afterEach(async () => {
   await f.close()
 })
 
-test("a success is claimed, with no credit promised (F2)", async () => {
+test("a success with no arithmetic is claimed, no credit promised", async () => {
   f.route("POST /api/v1/points/first-login", () => json({ code: "000000" }))
   const out = await hooks.auth.checkin(async () => ({ access: "tok" }))
   assert.deepEqual(out, { outcome: "claimed", message: "每日赠送积分已刷新" })
-  assert.ok(!("credit" in out), "the answer carries no granted-this-time field, so none is promised")
+  assert.ok(!("credit" in out), "the answer carries no granted-this-time arithmetic, so none is promised")
 })
 
 test("the daily balance, when the answer carries it, goes into the wording (F2)", async () => {
@@ -67,6 +77,44 @@ test("two calls in a row both claim: the idempotent reading", async () => {
     assert.equal(r.headers.token, "tok")
     assert.equal(r.headers.authorization, "Bearer tok")
   }
+})
+
+test("a repeat answers done — alreadyProcessed tells it apart (issue #1's capture)", async () => {
+  f.route("POST /api/v1/points/first-login", () =>
+    json({
+      code: "000000",
+      data: { alreadyProcessed: true, currentBalance: 3011, permanentBalance: 0, dailyBalance: 3011, dailyQuota: 5000, dailyConsumed: 1989, dailyCycleDate: "2026-10-27" },
+    })
+  )
+  const out = await hooks.auth.checkin(async () => ({ access: "tok", accountId: "138****8000" }))
+  assert.deepEqual(out, { outcome: "done", message: "今日已刷新（剩余 3011 / 5000）" })
+})
+
+test("the day's first answers claimed, the credit the answer's own arithmetic", async () => {
+  f.route("POST /api/v1/points/first-login", () =>
+    json({
+      code: "000000",
+      data: { alreadyProcessed: false, currentBalance: 5000, permanentBalance: 0, dailyBalance: 5000, dailyQuota: 5000, dailyConsumed: 0, dailyCycleDate: "2026-10-28" },
+    })
+  )
+  const out = await hooks.auth.checkin(async () => ({ access: "tok" }))
+  assert.deepEqual(out, { outcome: "claimed", credit: 5000, message: "每日赠送积分已刷新（+5000，当前 5000）" })
+})
+
+test("the quota the claim notes serves the card — the file for the next run, the map for this one", async () => {
+  f.route("POST /api/v1/points/first-login", () =>
+    json({ code: "000000", data: { alreadyProcessed: false, dailyBalance: 5000, dailyQuota: 5000, dailyConsumed: 0 } })
+  )
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 2013 } }))
+  const auth = async () => ({ access: "tok", accountId: "137****7000" })
+  await hooks.auth.checkin(auth)
+  // the next run reads the file: one size, keyed by the account
+  assert.equal(JSON.parse(await readFile(process.env.LOOMY_QUOTA_CACHE_FILE, "utf8"))["137****7000"], 5000)
+  // this run reads the note the same call left in memory: (5000-2013)/5000
+  const card = await hooks.auth.usage(auth)
+  const [grant] = card.windows
+  assert.equal(grant.used, 60)
+  assert.equal(grant.display, "剩余 2013 / 限额 5000")
 })
 
 test("not signed in answers failed, asking nothing", async () => {
