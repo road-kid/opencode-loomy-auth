@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — 2026-10-28
+
+### Changed
+
+- The package moves to `@roadkid/opencode-loomy-auth` (from
+  `@magpie-community/opencode-loomy-auth`, a name under the community npm
+  organization this plugin has not joined — its scope cannot be published
+  under from this account). Same code as 0.1.1.
+
 ## 0.1.1 — 2026-10-28
 
 ### Fixed

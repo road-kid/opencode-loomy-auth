@@ -1,4 +1,4 @@
-# @magpie-community/opencode-loomy-auth
+# @roadkid/opencode-loomy-auth
 
 An [OpenCode](https://opencode.ai) / [magpie](https://usemagpie.ai) provider
 plugin for a Loomy (iFlytek) account. You sign in with Loomy's phone-code
@@ -16,7 +16,7 @@ The package exports `LoomyAuthPlugin` (`loomy`).
 
 ```sh
 magpie plugin add github:road-kid/opencode-loomy-auth    # this repository
-magpie plugin add @magpie-community/opencode-loomy-auth  # the npm name, once the community PR is in
+magpie plugin add @roadkid/opencode-loomy-auth  # the npm name
 magpie plugin add .                                      # a local copy — no npm, no GitHub
 magpie plugin login loomy      # the phone-code sign-in
 magpie provider test loomy     # one small request per API, to check the wiring
