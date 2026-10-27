@@ -10,6 +10,7 @@ import "./nonet.mjs"
 import { afterEach, beforeEach, test } from "node:test"
 import assert from "node:assert/strict"
 import { writeFile } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -47,8 +48,8 @@ test("used is the grant's consumed share; the amounts live in display (F1)", () 
   assert.equal(grant.name, "每日赠送")
   assert.equal(grant.used, 70) // (5000-1500)/5000, a percentage
   assert.equal(grant.span, 86400) // a day: the grant comes back with the calendar
-  assert.equal(grant.display, "剩余 1500 / 限额 5000")
-  assert.deepEqual(permanent, { name: "永久积分", used: 0, display: "100 积分", aside: true }) // a status row, always zero
+  assert.equal(grant.display, "1500 / 5000 积分")
+  assert.deepEqual(permanent, { name: "永久积分", used: 0, display: "100 积分", unit: "积分", aside: true }) // a status row, always zero
 })
 
 test("a grant without a size shows its remaining alone, zero used (issue #1: no pair comes back)", () => {
@@ -66,7 +67,7 @@ test("dailyBalance is the grant's remaining: with a size, the share reads off it
   assert.equal(bare.display, "剩余 3011 积分")
   const [sized] = _internal.usageOf(capture, 5000).windows
   assert.equal(sized.used, 40) // (5000-3011)/5000, a percentage
-  assert.equal(sized.display, "剩余 3011 / 限额 5000")
+  assert.equal(sized.display, "3011 / 5000 积分")
 })
 
 test("the size the check-in noted carries across restarts, by the cache file", async () => {
@@ -75,7 +76,7 @@ test("the size the check-in noted carries across restarts, by the cache file", a
   const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "139****9000" }))
   const [grant] = card.windows
   assert.equal(grant.used, 40)
-  assert.equal(grant.display, "剩余 3011 / 限额 5000")
+  assert.equal(grant.display, "3011 / 5000 积分")
 })
 
 test("missing numbers read as zero, and the sum rounds to cents", () => {
@@ -90,8 +91,8 @@ test("the card off the fake, the older answer's pair on it — the pair still wi
     plan: "Loomy",
     balance: "200 积分",
     windows: [
-      { name: "每日赠送", used: 75, span: 86400, display: "剩余 20 / 限额 80" },
-      { name: "永久积分", used: 0, display: "120 积分", aside: true },
+      { name: "每日赠送", used: 75, span: 86400, display: "20 / 80 积分", amount: 60, limit: 80, unit: "积分", resetsAt: "2026-10-28T16:00:00.000Z" },
+      { name: "永久积分", used: 0, display: "120 积分", unit: "积分", aside: true },
     ],
     user: "138****8000",
     signIn: "kept",
@@ -121,6 +122,56 @@ test("the card carries the still-claimable newcomer purse as an aside row", asyn
   assert.equal(bare.windows.length, 2)
   await hooks.auth.usage(async () => ({ access: "tok-bare", accountId: "135****5001" }))
   assert.equal(f.seen.filter((r) => r.path === "/api/v1/onboarding/tasks").length, 2) // one refusal, cached
+})
+
+test("the reset moment is the next Beijing midnight of the cycle the note names", () => {
+  // a cycle date's day opens at its Beijing midnight; the reset is the next one
+  assert.equal(_internal.beijingCycleResetAt("2026-10-28", Date.parse("2026-10-28T10:00:00+08:00")), "2026-10-28T16:00:00.000Z")
+  // late in the Beijing day, still the same next midnight
+  assert.equal(_internal.beijingCycleResetAt("2026-10-28", Date.parse("2026-10-28T23:30:00+08:00")), "2026-10-28T16:00:00.000Z")
+  // a note from an earlier day never answers a moment already past
+  assert.equal(_internal.beijingCycleResetAt("2026-10-26", Date.parse("2026-10-28T10:00:00+08:00")), "2026-10-28T16:00:00.000Z")
+  // no note at all: the current Beijing day's next midnight
+  assert.equal(_internal.beijingCycleResetAt(undefined, Date.parse("2026-10-28T10:00:00+08:00")), "2026-10-28T16:00:00.000Z")
+})
+
+test("a card with no note asks the first-login answer itself — once", async () => {
+  const auth = async () => ({ access: "tok-heal", accountId: "132****2000" })
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 2013 } }))
+  // a repeat of the day's first login: alreadyProcessed, the same numbers
+  f.route("POST /api/v1/points/first-login", () =>
+    json({ code: "000000", data: { alreadyProcessed: true, dailyBalance: 2013, dailyQuota: 5000, dailyConsumed: 2987, dailyCycleDate: "2026-10-28" } })
+  )
+  const card = await hooks.auth.usage(auth)
+  const [grant] = card.windows
+  assert.equal(grant.used, 60) // (5000-2013)/5000, healed on the first render
+  assert.equal(grant.display, "2013 / 5000 积分")
+  assert.match(grant.resetsAt, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T16:00:00.000Z$/) // a Beijing midnight, whatever the day
+  // the ask is once for the run: a second render adds no first-login call
+  await hooks.auth.usage(auth)
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1)
+  // the note it took is written down for the next run
+  assert.equal(JSON.parse(readFileSync(process.env.LOOMY_QUOTA_CACHE_FILE, "utf8"))["132****2000"], 5000)
+})
+
+test("an ask that refuses answers a plain card and is not asked again", async () => {
+  const auth = async () => ({ access: "tok-nofix", accountId: "132****2001" })
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 900 } }))
+  f.route("POST /api/v1/points/first-login", () => json({}, 500))
+  const card = await hooks.auth.usage(auth)
+  const [grant] = card.windows
+  assert.equal(grant.used, 0)
+  assert.equal(grant.display, "剩余 900 积分")
+  await hooks.auth.usage(auth)
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1) // one ask, then silence
+})
+
+test("the credential's own note serves the card first", async () => {
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 3011 } }))
+  const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "133****3000", dailyQuota: 5000 }))
+  const [grant] = card.windows
+  assert.equal(grant.used, 40) // (5000-3011)/5000, off the credential alone
+  assert.equal(grant.display, "3011 / 5000 积分")
 })
 
 test("not signed in answers {error} alone, asking nothing", async () => {

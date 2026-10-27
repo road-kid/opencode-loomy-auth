@@ -65,7 +65,11 @@ become the tool / reasoning / image bits, the context and output limits pass
 through, and every model carries the low/medium/high reasoning-effort
 variants. The gateway prints each model's point rate as a suffix on its
 display name (`MiniMax M3 （x4.0）` — ASCII and full-width brackets both
-occur); the plugin splits that off and keeps it out of the name.
+occur); the plugin splits that off and keeps it out of the name. A model the
+upstream itself declares free — the words 免费 in the name, or a rate of
+exactly zero — carries a `free` bit; no rate at all is not free. Rows that
+aren't chat models (the image generators say so) are left off the list:
+selecting one is selecting a failure.
 
 The live list is the source of truth and wins the moment it answers. Without
 a session, on an empty answer or a failed ask, the plugin falls back to the
@@ -104,11 +108,16 @@ The usage card shows the two wallets Loomy keeps:
   what is left over the limit beside it. `dailyBalance` is the grant's
   *remaining* (`dailyQuota` − `dailyConsumed`), so the percentage needs the
   grant's size: the pair the answer carries when it carries one, else the
-  `dailyQuota` the check-in notes per account — a small `.loomy-quota.json`
-  beside the plugin keeps the note across restarts, and it takes a check-in
-  to write it (the **Daily check-in** switch, off by default, or the manual
-  **Check in now** button): until the first one the card shows the remaining
-  alone; no share is invented and no quota is assumed;
+  `dailyQuota` the check-in notes per account — the note lives on the
+  credential itself (the host's own store, carried across plugin upgrades;
+  a small file beside the plugin stands in where the host has no such
+  store). A card that finds no note anywhere asks the first-login answer
+  itself — once, the call being idempotent for the day (the client makes it
+  on every login) — so a fresh install heals on its first render instead of
+  waiting for the next check-in; no share is invented and no quota is
+  assumed. The window carries the cycle's exact reset
+  moment — the next Beijing midnight of the day the check-in's answer named
+  — so the card counts down to the real refill, not a guessed one;
 - the permanent row set aside: the permanent balance, which has no window;
 - the newcomer row beside them: the one-time newcomer tasks (10000 points
   in all) while any stand unclaimed — an aside, never a percentage: a

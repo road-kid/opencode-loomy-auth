@@ -142,8 +142,14 @@ function parseModels(payload) {
   for (const row of rows) {
     const id = typeof row?.id === "string" ? row.id.trim() : ""
     if (!id) continue
+    // a row that isn't a chat model — the image generators say so — is no
+    // choice to offer: selecting one is selecting a failure
+    if (typeof row?.type === "string" && row.type.trim() && row.type.trim() !== "chat") continue
     const displayName = typeof row.name === "string" && row.name.trim() ? row.name.trim() : id
     const { name, rate } = splitRateSuffix(displayName)
+    // free is the upstream's own declaration, nothing inferred: the words
+    // 免费 in the display name, or a rate of exactly zero
+    const free = /免费/.test(displayName) || (rate !== undefined && /^x0(\.0+)?$/i.test(rate.trim()))
     const caps = plainObject(row.capabilities)
     const hasModal = (want) =>
       (Array.isArray(caps?.input_modalities) ? caps.input_modalities : []).some(
@@ -153,6 +159,7 @@ function parseModels(payload) {
       id,
       name,
       rate,
+      free,
       toolcall: caps === undefined || caps.function_calling === true,
       reasoning: caps?.reasoning === true || isReasoningModel(id),
       vision: caps?.vision === true || hasModal("image"),
@@ -178,6 +185,7 @@ function configModelOf(m) {
     modalities: { input: m.vision === true ? ["text", "image"] : ["text"], output: ["text"] },
     limit: { context: m.context ?? 0, output: m.output ?? 0 },
     cost: { input: 0, output: 0 },
+    ...(m.free === true ? { free: true } : {}),
     variants: VARIANTS,
   }
 }
@@ -195,6 +203,7 @@ function providerModelOf(m, providerID = ID) {
     limit: { context: m.context ?? 0, output: m.output ?? 0 },
     capabilities: { toolcall: m.toolcall !== false, reasoning: m.reasoning === true, attachment: m.vision === true },
     cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    ...(m.free === true ? { free: true } : {}),
     variants: VARIANTS,
   }
 }
@@ -470,11 +479,18 @@ const pointsFloor = (payload) => plainObject(payload?.data?.data) ?? plainObject
 // only read the card makes — answers with the grant's remaining alone
 // (dailyBalance), and the size (dailyQuota) rides the first-login answer
 // the check-in already pays for. So the check-in notes the size per
-// account: in memory for the run, and in a small JSON beside the plugin
-// for the next — the card reads the note back and never has to call the
-// write endpoint on its own. Both halves are best-effort: a filesystem
-// that refuses answers nothing rather than failing the card or the claim,
-// and LOOMY_QUOTA_CACHE_FILE moves the file the way the other knobs move
+// account, and the note's home is the credential itself: the host's own
+// user data, carried across plugin upgrades (a package directory is
+// replaced whole on every install, so a note beside the plugin file
+// survives nothing) and scoped to the account for free — magpie's
+// client.auth.set replaces the record as a whole, so the current record
+// rides along and the note lands beside it, and the read comes back with
+// getAuth(). Where no auth.set exists, or for an upgrade from a release
+// that noted only there, a small JSON beside the plugin (memory for the
+// run, file for the next) stands in — the card reads the credential
+// first, the file behind it. Every half is best-effort: a refusing store
+// answers nothing rather than failing the card or the claim, and
+// LOOMY_QUOTA_CACHE_FILE moves the file the way the other knobs move
 // the hosts.
 
 const quotaCacheFile = () =>
@@ -515,6 +531,86 @@ async function noteQuota(account, quota) {
   } catch {}
 }
 
+// askQuotaOnce is the card's own way out of a missing note — a fresh
+// install, an upgrade that wiped one, a credential that lost its fields.
+// The quota rides the first-login answer alone and no read endpoint
+// carries it, so the card asks that answer itself: once per account per
+// run, because the call is idempotent for the day (the client makes it on
+// every login; a repeat answers alreadyProcessed with the same numbers).
+// Whatever refuses here is a card without a percentage, never a failed
+// card — and a refusal is remembered for the run, so a broken upstream is
+// not asked on every render.
+const quotaAsksFailed = new Set()
+
+async function askQuotaOnce(client, auth, access) {
+  const account = String(auth?.accountId ?? "")
+  if (quotaAsksFailed.has(account)) return undefined
+  try {
+    const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
+    const code = businessCode(payload)
+    const quota = code === SUCCESS && !AUTH_CODES.has(code) ? pickNumber(pointsFloor(payload)?.dailyQuota) : undefined
+    if (quota === undefined) {
+      quotaAsksFailed.add(account)
+      return undefined
+    }
+    await rememberQuota(client, auth, quota, cycleDateOf(payload))
+    return quota
+  } catch {
+    quotaAsksFailed.add(account)
+    return undefined
+  }
+}
+
+// the cycle date the first-login answer names, a string or nothing
+const cycleDateOf = (payload) => {
+  const value = pointsFloor(payload)?.dailyCycleDate
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+// rememberQuota is the note's primary write: the credential itself, whole
+// record replaced with the note beside its fields. A host without an
+// auth.set — or a write that refuses — falls back to the file note, and
+// nothing here may ever break the claim that carries it. The cycle date
+// rides with the quota: the window's exact reset moment is computed from
+// it, and the two belong to the same day or neither means anything
+const rememberQuota = async (client, auth, quota, cycleDate) => {
+  if (quota === undefined) return
+  // both homes, best-effort each: the credential survives plugin upgrades,
+  // and the file answers at once — a getAuth that lingers on the pre-write
+  // record for the rest of the run finds the file behind it
+  if (typeof client?.auth?.set === "function") {
+    try {
+      const body = { ...(auth ?? {}), dailyQuota: quota }
+      if (typeof cycleDate === "string" && cycleDate) body.dailyCycleDate = cycleDate
+      await client.auth.set({ path: { id: ID }, body })
+    } catch {}
+  }
+  await noteQuota(String(auth?.accountId ?? ""), quota)
+}
+
+// the grant's cycle is the Beijing calendar day: the cycle date the
+// first-login answer names, a YYYY-MM-DD whose midnight — Beijing time —
+// opens the day the quota belongs to. The window's reset moment is the
+// next Beijing midnight: the same arithmetic the client's own calendar
+// keeps, with no buffer invented (a moment that has already passed — a
+// note from an earlier day still held — rolls forward, never back, so a
+// countdown never reads "already reset").
+const BEIJING_OFFSET_MS = 8 * 3600_000
+
+function beijingCycleResetAt(cycleDate, now = Date.now()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(cycleDate ?? "").trim())
+  let day
+  if (m) {
+    day = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - BEIJING_OFFSET_MS
+  } else {
+    const shifted = new Date(now + BEIJING_OFFSET_MS)
+    day = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - BEIJING_OFFSET_MS
+  }
+  let reset = day + 86_400_000
+  while (reset <= now) reset += 86_400_000
+  return new Date(reset).toISOString()
+}
+
 // usageOf is the card. The two wallets Loomy keeps — the permanent balance
 // and the daily grant — add into the one balance line, and the grant takes
 // the window. used is a percentage 0-100; the amounts live in display
@@ -531,7 +627,7 @@ async function noteQuota(account, quota) {
 // balance has no window to consume. The balance line is the total the
 // answer names (availableBalance/currentBalance — the first-login answer's
 // own name for it) or the two wallets summed.
-function usageOf(payload, notedQuota) {
+function usageOf(payload, notedQuota, cycleDate) {
   const data = pointsFloor(payload)
   const permanent = pickNumber(data.balance) ?? pickNumber(data.permanentBalance) ?? 0
   const pair =
@@ -550,12 +646,17 @@ function usageOf(payload, notedQuota) {
         span: 86400, // a day: the grant comes back with the calendar
         display:
           share !== undefined
-            ? `剩余 ${remaining} / 限额 ${quota}`
+            ? `${remaining} / ${quota} 积分`
             : remaining !== undefined
               ? `剩余 ${remaining} 积分`
               : "0 积分",
+        // amount is the consumed share — the host's own rendering pairs it
+        // with limit as what is left, so a remaining here would show the
+        // day's usage as if it were what is left
+        ...(share !== undefined ? { amount: Math.round((quota - remaining) * 100) / 100, limit: quota, unit: "积分" } : {}),
+        resetsAt: beijingCycleResetAt(cycleDate),
       },
-      { name: "永久积分", used: 0, display: `${permanent} 积分`, aside: true },
+      { name: "永久积分", used: 0, display: `${permanent} 积分`, unit: "积分", aside: true },
     ],
   }
 }
@@ -581,7 +682,7 @@ function checkinOf(payload) {
   const daily = pickNumber(data.dailyBalance)
   const quota = pickNumber(data.dailyQuota)
   const consumed = pickNumber(data.dailyConsumed)
-  const rest = daily !== undefined && quota !== undefined ? `剩余 ${daily} / ${quota}` : daily !== undefined ? `当前 ${daily}` : ""
+  const rest = daily !== undefined && quota !== undefined ? `${daily} / ${quota} 积分` : daily !== undefined ? `当前 ${daily}` : ""
   if (data.alreadyProcessed === true) {
     return { outcome: "done", message: rest ? `今日已刷新（${rest}）` : "今日已刷新" }
   }
@@ -851,9 +952,15 @@ export const LoomyAuthPlugin = async ({ client }) => ({
           const text = upstreamMessage(payload)
           throw new Error(text ? `积分查询失败：${text}` : `积分查询失败（上游 code=${code}）`)
         }
+        let noted = pickNumber(auth.dailyQuota) ?? (await quotaNoteOf(String(auth.accountId ?? "")))
+        if (noted === undefined) noted = await askQuotaOnce(client, auth, access)
         const card = {
           plan: "Loomy",
-          ...usageOf(payload, await quotaNoteOf(String(auth.accountId ?? ""))),
+          ...usageOf(
+            payload,
+            noted,
+            typeof auth.dailyCycleDate === "string" ? auth.dailyCycleDate : undefined
+          ),
           user: auth.accountId || "Loomy 账号",
           signIn: "kept",
         }
@@ -878,7 +985,7 @@ export const LoomyAuthPlugin = async ({ client }) => ({
         const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
         // the grant's size, kept for the card before the claim is read — a
         // note that must never break the claim itself
-        await noteQuota(String(auth.accountId ?? ""), pickNumber(pointsFloor(payload)?.dailyQuota))
+        await rememberQuota(client, auth, pickNumber(pointsFloor(payload)?.dailyQuota), cycleDateOf(payload))
         const claim = checkinOf(payload)
         // the newcomer tasks, claimed behind the daily grant and beside its
         // wording — best-effort, one at a time, and never a word about a
@@ -944,10 +1051,13 @@ export const _internal = {
   quotaCacheFile,
   quotaNoteOf,
   noteQuota,
+  rememberQuota,
+  askQuotaOnce,
   ONBOARDING_TASKS,
   onboardingStateOf,
   claimOnboarding,
   onboardingAsideOf,
+  beijingCycleResetAt,
   splitRateSuffix,
   parseModels,
   configModelOf,

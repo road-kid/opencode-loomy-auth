@@ -127,6 +127,40 @@ test("a repeat's alreadyCompleted answers no points", () => {
   )
 })
 
+test("the grant's size lands on the credential — the note that survives upgrades", async () => {
+  const { existsSync, readFileSync } = await import("node:fs")
+  // a cache file of this test's own: the suite's earlier file-path tests
+  // share one temp file per process, and this one must prove the
+  // credential path never touches whatever file is current
+  const was = process.env.LOOMY_QUOTA_CACHE_FILE
+  const mine = join(tmpdir(), `loomy-quota-cred-${randomUUID()}.json`)
+  process.env.LOOMY_QUOTA_CACHE_FILE = mine
+  try {
+    const sets = []
+    const credHooks = await LoomyAuthPlugin({ client: { auth: { set: async (call) => sets.push(call) } } })
+    f.route("POST /api/v1/points/first-login", () =>
+      json({ code: "000000", data: { alreadyProcessed: false, dailyBalance: 5000, dailyQuota: 5000, dailyConsumed: 0 } })
+    )
+    const record = { type: "oauth", access: "tok-cred", accountId: "134****9000" }
+    await credHooks.auth.checkin(async () => record)
+    // the whole record rides along, the note beside its fields
+    assert.equal(sets.length, 1)
+    assert.deepEqual(sets[0], { path: { id: "loomy" }, body: { ...record, dailyQuota: 5000 } })
+    // the file note is written too — a getAuth lingering on the pre-write
+    // record for the rest of the run finds it behind the credential
+    assert.ok(existsSync(mine))
+    assert.equal(JSON.parse(readFileSync(mine, "utf8"))["134****9000"], 5000)
+    // and the card reads the note back off the credential magpie would return
+    f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 2013 } }))
+    const card = await credHooks.auth.usage(async () => ({ ...record, dailyQuota: 5000 }))
+    const [grant] = card.windows
+    assert.equal(grant.used, 60) // (5000-2013)/5000
+    assert.equal(grant.display, "2013 / 5000 积分")
+  } finally {
+    process.env.LOOMY_QUOTA_CACHE_FILE = was
+  }
+})
+
 test("a repeat answers done — alreadyProcessed tells it apart (issue #1's capture)", async () => {
   f.route("POST /api/v1/points/first-login", () =>
     json({
@@ -135,7 +169,7 @@ test("a repeat answers done — alreadyProcessed tells it apart (issue #1's capt
     })
   )
   const out = await hooks.auth.checkin(async () => ({ access: "tok", accountId: "138****8000" }))
-  assert.deepEqual(out, { outcome: "done", message: "今日已刷新（剩余 3011 / 5000）" })
+  assert.deepEqual(out, { outcome: "done", message: "今日已刷新（3011 / 5000 积分）" })
 })
 
 test("the day's first answers claimed, the credit the answer's own arithmetic", async () => {
@@ -162,7 +196,7 @@ test("the quota the claim notes serves the card — the file for the next run, t
   const card = await hooks.auth.usage(auth)
   const [grant] = card.windows
   assert.equal(grant.used, 60)
-  assert.equal(grant.display, "剩余 2013 / 限额 5000")
+  assert.equal(grant.display, "2013 / 5000 积分")
 })
 
 test("not signed in answers failed, asking nothing", async () => {

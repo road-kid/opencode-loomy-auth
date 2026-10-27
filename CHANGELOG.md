@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.4 — 2026-10-28
+
+### Fixed
+
+- The noted daily quota no longer dies with the plugin directory: the note
+  now lives on the credential itself — the host's own user data, carried
+  across plugin upgrades and scoped to the account — with the small file
+  beside the plugin kept as the fallback (a host without that store) and
+  as the read-behind (an upgrade from a release that noted only there). An
+  upgrade-installed plugin no longer needs a fresh check-in before the
+  percentage comes back.
+
+### Added
+
+- A usage card that finds no quota note anywhere — a fresh install, an
+  upgrade that wiped the file, a credential that lost its fields — asks
+  the first-login answer itself, once per run: the call is idempotent for
+  the day (the client makes it on every login), so the percentage heals
+  on the first render instead of waiting for the next check-in. A refusal
+  is remembered for the run, never retried on every render.
+- The daily window carries `resetsAt` — the next Beijing midnight of the
+  cycle date the first-login answer names — so the card counts down to
+  the real refill; the consumed share rides as `amount` with `limit`/`unit`
+  beside the display (the host renders `limit − amount` as what is left),
+  and the display reads `2659 / 5000 积分`.
+- A model the upstream itself declares free (the words 免费, or a rate of
+  exactly `x0.0`) carries a `free` bit; no rate at all is not free. Rows
+  that aren't chat models — the image generators — are left off the list.
+
 ## 0.1.3 — 2026-10-28
 
 ### Added

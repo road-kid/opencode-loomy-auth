@@ -26,13 +26,13 @@ test("parseModels reads the {data:[…]} envelope and the bare array alike", () 
   const row = { id: "m1", name: "M One (x2.5)" }
   assert.deepEqual(_internal.parseModels({ data: [row] }), _internal.parseModels([row]))
   const [one] = _internal.parseModels({ data: [row] })
-  assert.deepEqual(one, { id: "m1", name: "M One", rate: "x2.5", toolcall: true, reasoning: false, vision: false, context: undefined, output: undefined })
+  assert.deepEqual(one, { id: "m1", name: "M One", rate: "x2.5", free: false, toolcall: true, reasoning: false, vision: false, context: undefined, output: undefined })
   assert.deepEqual(_internal.parseModels({ data: [] }), [])
   assert.deepEqual(_internal.parseModels(undefined), [])
   assert.deepEqual(_internal.parseModels({}), [])
   // a row without an id is dropped; an id is trimmed; a missing name shows the id
   assert.deepEqual(_internal.parseModels([{ name: "no id" }, { id: "  m2  " }]), [
-    { id: "m2", name: "m2", rate: undefined, toolcall: true, reasoning: false, vision: false, context: undefined, output: undefined },
+    { id: "m2", name: "m2", rate: undefined, free: false, toolcall: true, reasoning: false, vision: false, context: undefined, output: undefined },
   ])
 })
 
@@ -173,4 +173,27 @@ test("a dead session is passed on, not papered over with the fallback", async ()
   f.route("GET /api/v1/models", () => json({}, 401))
   const hooks = await LoomyAuthPlugin({ client: {} })
   await assert.rejects(hooks.provider.models({ id: "loomy", models: {} }, { auth: { access: "tok" } }), (e) => e.signIn === "expired")
+})
+
+test("free is the upstream's own declaration, nothing inferred", () => {
+  const rows = [
+    { id: "spark-free", name: "Spark-X2.6 正式版(限时免费)(x0.0)" }, // the words, and a zero rate
+    { id: "spark-zero", name: "Thing （x0.0）" }, // the zero rate alone
+    { id: "paid", name: "Paid (x0.8)" }, // a real rate is never free
+    { id: "unrated", name: "Plain One" }, // no declaration at all is not free either
+  ]
+  const by = Object.fromEntries(_internal.parseModels(rows).map((m) => [m.id, m.free]))
+  assert.deepEqual(by, { "spark-free": true, "spark-zero": true, paid: false, unrated: false })
+})
+
+test("a row that isn't a chat model is no choice to offer", () => {
+  const rows = [
+    { id: "chat-one", type: "chat", name: "One" },
+    { id: "image-one", type: "image", name: "Drawer" }, // selecting it is selecting a failure
+    { id: "no-type", name: "Typeless" }, // the answer has also shipped rows with no type at all
+  ]
+  assert.deepEqual(
+    _internal.parseModels(rows).map((m) => m.id),
+    ["chat-one", "no-type"]
+  )
 })
