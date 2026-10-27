@@ -143,14 +143,12 @@ in one go.
 All of them are read when a call is made, not when the plugin loads, so tests
 can point them at a fake of their own.
 
-| Variable | Default | What it replaces |
-|---|---|---|
-| `LOOMY_XFYUN_BASE_URL` | `https://account.xfinfr.com` | the account host (send / check code) |
-| `LOOMY_POINTS_BASE_URL` | `https://loomyad.xunfei.cn` | the integration host — points, first-login, and `/api/v1` (models and chat) |
-| `LOOMY_XFYUN_ACCESS_KEY_ID` | built-in (overridable) | the account-plane signature's key id |
-| `LOOMY_XFYUN_ACCESS_KEY_SECRET` | built-in (overridable) | the account-plane signature's key secret |
-| `LOOMY_XFYUN_APP_ID` | `GM3LOOMY` | the request envelope's appid |
-| `LOOMY_QUOTA_CACHE_FILE` | `.loomy-quota.json` beside the plugin | where the check-in's noted daily quota persists across restarts |
+- `LOOMY_XFYUN_BASE_URL`
+- `LOOMY_POINTS_BASE_URL`
+- `LOOMY_XFYUN_ACCESS_KEY_ID`
+- `LOOMY_XFYUN_ACCESS_KEY_SECRET`
+- `LOOMY_XFYUN_APP_ID`
+- `LOOMY_QUOTA_CACHE_FILE`
 
 ## Known limits
 
