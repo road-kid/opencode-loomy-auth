@@ -1,6 +1,6 @@
 # @roadkid/opencode-loomy-auth
 
-[English](./README.md) | 中文
+[English](../README.md) | 中文
 
 一个面向 Loomy（讯飞）账号的 [OpenCode](https://opencode.ai) / [magpie](https://usemagpie.ai)
 provider 插件。用 Loomy 的手机验证码登录，对话经 Loomy 的 OpenAI 兼容模型网关转发，

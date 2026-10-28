@@ -1,6 +1,6 @@
 # @roadkid/opencode-loomy-auth
 
-English | [中文](./README.zh.md)
+English | [中文](./docs/README.zh.md)
 
 An [OpenCode](https://opencode.ai) / [magpie](https://usemagpie.ai) provider
 plugin for a Loomy (iFlytek) account. You sign in with Loomy's phone-code
