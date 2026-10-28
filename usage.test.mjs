@@ -195,6 +195,24 @@ test("an ask that refuses answers a plain card and is not asked again", async ()
   assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1) // one ask, then silence
 })
 
+test("a refused ask retries after its window, not on every render", async () => {
+  const auth = async () => ({ access: "tok-retry", accountId: "132****2002" })
+  f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 900 } }))
+  f.route("POST /api/v1/points/first-login", () => json({}, 500))
+  await hooks.auth.usage(auth)
+  await hooks.auth.usage(auth)
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1)
+  // the window passes: the next render asks once more, and the note it takes
+  // turns the percentage on
+  _internal.quotaAsksFailed.set("132****2002", Date.now() - _internal.QUOTA_ASK_RETRY_MS - 1)
+  f.route("POST /api/v1/points/first-login", () =>
+    json({ code: "000000", data: { alreadyProcessed: true, dailyQuota: 5000, dailyBalance: 900 } })
+  )
+  const healed = await hooks.auth.usage(auth)
+  assert.equal(healed.windows[0].display, "900 / 5000 积分")
+  assert.equal(f.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 2)
+})
+
 test("the credential's own note serves the card first", async () => {
   f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 0, dailyBalance: 3011 } }))
   const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "133****3000", dailyQuota: 5000 }))

@@ -199,6 +199,13 @@ test("the quota the claim notes serves the card — the file for the next run, t
   assert.equal(grant.display, "2013 / 5000 积分")
 })
 
+test("two accounts noting at once both land in the file", async () => {
+  await Promise.all([_internal.noteQuota("136****6001", 1111), _internal.noteQuota("136****6002", 2222)])
+  const store = JSON.parse(await (await import("node:fs/promises")).readFile(process.env.LOOMY_QUOTA_CACHE_FILE, "utf8"))
+  assert.equal(store["136****6001"], 1111)
+  assert.equal(store["136****6002"], 2222)
+})
+
 test("not signed in answers failed, asking nothing", async () => {
   assert.deepEqual(await hooks.auth.checkin(async () => ({})), { outcome: "failed", message: "not signed in" })
   assert.equal(f.seen.length, 0)

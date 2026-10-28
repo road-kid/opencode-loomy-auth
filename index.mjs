@@ -22,7 +22,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const ID = "loomy"
@@ -519,17 +519,25 @@ async function quotaNoteOf(account) {
 
 // noteQuota keeps one account's size in the memory map and merges it into
 // the file, so other accounts' notes survive the write
+// the notes write one after another: two accounts signing in at once both
+// read-merge-write the same file, and an unsynchronized pair would let the
+// later write drop the earlier account's note
+let noteWrites = Promise.resolve()
+
 async function noteQuota(account, quota) {
   if (quota === undefined) return
   quotaNotes.set(account, quota)
-  try {
-    let store = {}
-    try {
-      store = plainObject(JSON.parse(await readFile(quotaCacheFile(), "utf8"))) ?? {}
-    } catch {}
-    store[account] = quota
-    await writeFile(quotaCacheFile(), JSON.stringify(store), "utf8")
-  } catch {}
+  noteWrites = noteWrites
+    .then(async () => {
+      let store = {}
+      try {
+        store = plainObject(JSON.parse(await readFile(quotaCacheFile(), "utf8"))) ?? {}
+      } catch {}
+      store[account] = quota
+      await writeFile(quotaCacheFile(), JSON.stringify(store), "utf8")
+    })
+    .catch(() => {})
+  await noteWrites
 }
 
 // askQuotaOnce is the card's own way out of a missing note — a fresh
@@ -541,23 +549,25 @@ async function noteQuota(account, quota) {
 // Whatever refuses here is a card without a percentage, never a failed
 // card — and a refusal is remembered for the run, so a broken upstream is
 // not asked on every render.
-const quotaAsksFailed = new Set()
+const QUOTA_ASK_RETRY_MS = 10 * 60_000 // a refused ask retries after a while, not on every render
+const quotaAsksFailed = new Map()
 
 async function askQuotaOnce(client, auth, access) {
   const account = String(auth?.accountId ?? "")
-  if (quotaAsksFailed.has(account)) return undefined
+  const failedAt = quotaAsksFailed.get(account)
+  if (failedAt !== undefined && Date.now() - failedAt < QUOTA_ASK_RETRY_MS) return undefined
   try {
     const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
     const code = businessCode(payload)
     const quota = code === SUCCESS && !AUTH_CODES.has(code) ? pickNumber(pointsFloor(payload)?.dailyQuota) : undefined
     if (quota === undefined) {
-      quotaAsksFailed.add(account)
+      quotaAsksFailed.set(account, Date.now())
       return undefined
     }
     await rememberQuota(client, auth, quota, cycleDateOf(payload))
     return quota
   } catch {
-    quotaAsksFailed.add(account)
+    quotaAsksFailed.set(account, Date.now())
     return undefined
   }
 }
@@ -1142,6 +1152,8 @@ export const _internal = {
   quotaCacheFile,
   noteHostDirectory,
   wordsOf,
+  quotaAsksFailed,
+  QUOTA_ASK_RETRY_MS,
   quotaNoteOf,
   noteQuota,
   rememberQuota,
