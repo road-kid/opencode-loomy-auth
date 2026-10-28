@@ -18,6 +18,8 @@
   fallback); the usage card's wording already did.
 - The Chinese README moved to `docs/README.zh.md` — npm's readme picker
   reads the package root, where the English `README.md` now stands alone.
+- The READMEs tell the protocol's facts and leave the override knobs out
+  of the public docs.
 
 ## 0.1.4 — 2026-10-28
 
