@@ -139,11 +139,14 @@ test("the words follow the host's settings.json lang — en beside zh", async ()
     assert.equal(grant.display, "3011 / 5000 credits")
     assert.equal(grant.unit, "credits")
     assert.equal(permanent.name, "Permanent points")
+    assert.equal(_internal.describeLoginError("020002", ""), "Sign-in expired, sign in again")
+    assert.equal(_internal.describeLoginError("100001", "busy"), "Sign-in failed: busy")
     assert.equal(_internal.checkinOf({ code: "000000", data: { alreadyProcessed: true, dailyBalance: 3011, dailyQuota: 5000 } }).message, "Already refreshed today (3011 / 5000 credits)")
   } finally {
     _internal.noteHostDirectory("")
     rmSync(dir, { recursive: true, force: true })
   }
+  assert.equal(_internal.describeLoginError("020002", ""), "登录态已失效，请重新登录")
   // and with no host folder the plugin's own words stand
   const zh = _internal.usageOf({ data: { balance: 0, dailyBalance: 3011 } }, 5000, "2026-10-28")
   assert.equal(zh.windows[0].name, "每日赠送")

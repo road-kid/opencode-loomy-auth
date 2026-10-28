@@ -291,9 +291,10 @@ const upstreamMessage = (payload) => {
 // sign-in codes say so in so many words, the rest pass the upstream wording
 // through (or the bare code when there is no wording)
 const describeLoginError = (code, upstreamMsg) => {
-  if (AUTH_CODES.has(code)) return "登录态已失效，请重新登录"
+  const w = wordsOf()
+  if (AUTH_CODES.has(code)) return w.loginExpired
   const text = String(upstreamMsg ?? "").trim()
-  return text ? `登录失败：${text}` : `登录失败（上游 code=${code}）`
+  return text ? w.loginFailed(text) : w.loginFailedCode(code)
 }
 
 // ---- the request envelope and the signed POST -------------------------------------
@@ -344,7 +345,7 @@ async function caccountPost(path, body) {
     body: json,
     signal: AbortSignal.timeout(20_000),
   })
-  if (!res.ok) throw new Error(`Loomy 账号接口 HTTP ${res.status}`)
+  if (!res.ok) throw new Error(wordsOf().accountHttp(res.status))
   return await res.json()
 }
 
@@ -371,7 +372,7 @@ async function tokenRequest(method, path, json, token) {
     signal: AbortSignal.timeout(20_000), // the client's own timeout, drawn in a little
   })
   if (res.status === 401 || res.status === 403) throw signInExpired()
-  if (!res.ok) throw new Error(`Loomy 网关接口 HTTP ${res.status}`)
+  if (!res.ok) throw new Error(wordsOf().gatewayHttp(res.status))
   return await res.json()
 }
 
@@ -637,6 +638,15 @@ const I18N = {
     refreshFailedCode: c => `每日积分刷新失败（上游 code=${c}）`,
     claimable: (sum, n) => `可领 ${sum} 积分（${n} 项）`,
     claimTail: (gain, n) => `，新手任务 +${gain}（${n} 项）`,
+    loginExpired: "登录态已失效，请重新登录",
+    loginFailed: t => `登录失败：${t}`,
+    loginFailedCode: c => `登录失败（上游 code=${c}）`,
+    signInExpired: "Loomy 登录态已失效，请重新登录",
+    pointsFailed: t => `积分查询失败：${t}`,
+    pointsFailedCode: c => `积分查询失败（上游 code=${c}）`,
+    account: "Loomy 账号",
+    accountHttp: s => `Loomy 账号接口 HTTP ${s}`,
+    gatewayHttp: s => `Loomy 网关接口 HTTP ${s}`,
   },
   en: {
     daily: "Daily grant",
@@ -654,6 +664,15 @@ const I18N = {
     refreshFailedCode: c => `Daily refresh failed (upstream code=${c})`,
     claimable: (sum, n) => `${sum} credits claimable (${n} tasks)`,
     claimTail: (gain, n) => `, newcomer tasks +${gain} (${n} claimed)`,
+    loginExpired: "Sign-in expired, sign in again",
+    loginFailed: t => `Sign-in failed: ${t}`,
+    loginFailedCode: c => `Sign-in failed (upstream code=${c})`,
+    signInExpired: "Loomy sign-in expired, sign in again",
+    pointsFailed: t => `Points query failed: ${t}`,
+    pointsFailedCode: c => `Points query failed (upstream code=${c})`,
+    account: "Loomy account",
+    accountHttp: s => `Loomy account API HTTP ${s}`,
+    gatewayHttp: s => `Loomy gateway API HTTP ${s}`,
   },
 }
 
@@ -859,7 +878,7 @@ async function onboardingAsideOf(access) {
 // (Loomy offers no refresh), so the only way on is signing in again — the
 // marker is what tells magpie to ask for exactly that
 function signInExpired() {
-  const error = new Error("Loomy 登录态已失效，请重新登录")
+  const error = new Error(wordsOf().signInExpired)
   error.signIn = "expired"
   return error
 }
@@ -1021,7 +1040,7 @@ export const LoomyAuthPlugin = async (input) => {
         if (AUTH_CODES.has(code)) throw signInExpired()
         if (code !== SUCCESS) {
           const text = upstreamMessage(payload)
-          throw new Error(text ? `积分查询失败：${text}` : `积分查询失败（上游 code=${code}）`)
+          throw new Error(text ? wordsOf().pointsFailed(text) : wordsOf().pointsFailedCode(code))
         }
         let noted = pickNumber(auth.dailyQuota) ?? (await quotaNoteOf(String(auth.accountId ?? "")))
         if (noted === undefined) noted = await askQuotaOnce(client, auth, access)
@@ -1032,7 +1051,7 @@ export const LoomyAuthPlugin = async (input) => {
             noted,
             typeof auth.dailyCycleDate === "string" ? auth.dailyCycleDate : undefined
           ),
-          user: auth.accountId || "Loomy 账号",
+          user: auth.accountId || wordsOf().account,
           signIn: "kept",
         }
         // the one-time newcomer purse rides as an aside row while any of
