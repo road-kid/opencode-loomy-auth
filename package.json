@@ -1,6 +1,6 @@
 {
   "name": "@roadkid/opencode-loomy-auth",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "OpenCode provider plugin for Loomy (iFlytek): phone-code sign-in, the live OpenAI-compatible model gateway, dual point wallets and the daily first-login refresh",
   "type": "module",
   "main": "./index.mjs",

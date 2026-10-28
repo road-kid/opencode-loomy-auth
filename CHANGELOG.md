@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.5 — 2026-10-28
+
+### Fixed
+
+- The built-in fallback model table is the catalog observed on 2026-10-28
+  (the retired ids are gone; the ten chat entries carry their rates, free
+  bits, context and output limits as the gateway served them).
+- The quota note's file write is serialized: two accounts signing in at
+  once no longer race the read-merge-write and drop each other's note.
+- A refused self-heal ask retries after ten minutes instead of never.
+
+### Changed
+
+- The error paths speak the interface language too (sign-in expired or
+  failed, points query failed, the hosts' HTTP errors, the account
+  fallback); the usage card's wording already did.
+- The Chinese README moved to `docs/README.zh.md` — npm's readme picker
+  reads the package root, where the English `README.md` now stands alone.
+
 ## 0.1.4 — 2026-10-28
 
 ### Fixed
