@@ -98,13 +98,14 @@ test("the config hook's fallback table is the tool_call shape (F3), with the eff
   assert.equal(Object.keys(p.models).length, _internal.FALLBACK_MODELS.length) // the web plane's ten
   const spark = p.models["spark-x"]
   assert.equal(spark.id, "spark-x")
-  assert.equal(spark.name, "Spark X2.5")
+  assert.equal(spark.name, "Spark-X2.5（限时免费）")
   assert.equal(spark.tool_call, true) // the underscore spelling this table reads
   assert.ok(!("toolcall" in spark) && !("capabilities" in spark), "no ModelInfo keys in the config shape")
   assert.equal(spark.reasoning, true)
+  assert.equal(spark.free, true) // the snapshot's own free declaration rides through
   assert.equal(spark.attachment, false)
   assert.deepEqual(spark.modalities, { input: ["text"], output: ["text"] })
-  assert.deepEqual(spark.limit, { context: 0, output: 0 })
+  assert.deepEqual(spark.limit, { context: 1048576, output: 65536 })
   assert.deepEqual(spark.cost, { input: 0, output: 0 })
   assert.deepEqual(spark.variants, { low: { reasoningEffort: "low" }, medium: { reasoningEffort: "medium" }, high: { reasoningEffort: "high" } })
   // the plain models carry the efforts too, and a second run clobbers nothing

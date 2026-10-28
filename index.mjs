@@ -44,30 +44,28 @@ const keyId = () => process.env.LOOMY_XFYUN_ACCESS_KEY_ID || "2thryby66wxi53sk"
 const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrbawz683wf5r3m2snrwj868r"
 
 // ---- the model catalog ------------------------------------------------------------
-// The model gateway has a live /api/v1/models answer; the table below is the
-// web plane's own ten, a first install's guide until that answer can be had
-// (and the fallback whenever it can't) — the live list is the source of
-// truth and wins the moment it answers. Three of the ten carry the point
-// rate the model gateway prints (there it rides the display name's suffix),
-// kept in the record's rate field and out of the name; spark-x is the one
-// the client's own catalog flags as a thinking model. The entries without a
-// display name show their id. They carry no capability bits of their own
-// (spark-x's reasoning aside) — the two shapes below read a missing toolcall
-// bit as the OpenAI-compatible default, tools on, the way the gateway's own
-// catalog does for a row that ships no capabilities and the way minimax and
-// autoclaw spell their static tables.
+// The model gateway has a live /api/v1/models answer; the table below is a
+// snapshot of that catalog as measured live on 2026-10-28, a first install's
+// guide until the answer can be had (and the fallback whenever it can't) —
+// the live list is the only source of truth and wins the moment it answers.
+// The image generators the gateway also lists are not in the table:
+// parseModels drops every row whose type isn't chat, and the fallback keeps
+// to the chat models for the same reason. The rates and the free bits are
+// copied as the upstream declares them, and a missing toolcall bit — auto's
+// record carries none — still reads as the OpenAI-compatible default, tools
+// on, the way the two shapes below spell it.
 
 const FALLBACK_MODELS = [
-  { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731", rate: "x3.0" },
-  { id: "MiniMax-M3" },
-  { id: "Kimi-k2.6" },
-  { id: "qwen-3.8-max" },
-  { id: "qwen3.8-flash" },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8" },
-  { id: "spark-x", name: "Spark X2.5", rate: "x0.1", reasoning: true },
-  { id: "doubao-seed-2.0-mini" },
-  { id: "mimo-v2.5" },
-  { id: "qwen3.5-flash" },
+  { id: "spark-x2.6", name: "Spark-X2.6 正式版(限时免费)", rate: "x0.0", free: true, context: 1048576, output: 131072, reasoning: true },
+  { id: "spark-x", name: "Spark-X2.5（限时免费）", rate: "x0.0", free: true, context: 1048576, output: 65536, reasoning: true },
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true },
+  { id: "MiniMax-M3", name: "MiniMax M3", rate: "x4.0", context: 1048576, output: 512000, reasoning: true, vision: true },
+  { id: "Kimi-k2.6", name: "Kimi k2.6", rate: "x6.5", context: 262144, output: 65536, reasoning: true, vision: true },
+  { id: "qwen-3.8-max", name: "Qwen 3.8 Max", rate: "x12.0", context: 1000000, output: 65536, reasoning: true },
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8", context: 1048576, output: 131072, reasoning: true, vision: true },
+  { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true },
+  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1048576, output: 131072, reasoning: true, vision: true },
+  { id: "auto", name: "自动 · 均衡" },
 ]
 
 // Every model carries the same three reasoning efforts: an empty variants
