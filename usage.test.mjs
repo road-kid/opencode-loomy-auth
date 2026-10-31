@@ -87,16 +87,21 @@ test("missing numbers read as zero, and the sum rounds to cents", () => {
 test("the card off the fake, the older answer's pair on it — the pair still wins (compat)", async () => {
   f.route("GET /api/v2/points/records", () => json({ code: "000000", data: { balance: 120, dailyBalance: 80, dailyRemainingPoints: 20, dailyLimitPoints: 80 } }))
   const card = await hooks.auth.usage(async () => ({ access: "tok", accountId: "138****8000" }))
-  assert.deepEqual(card, {
-    plan: "Loomy",
-    balance: "200 积分",
-    windows: [
-      { name: "每日赠送", used: 75, span: 86400, display: "20 / 80 积分", amount: 60, limit: 80, unit: "credits", resetsAt: "2026-10-28T16:00:00.000Z" },
-      { name: "永久积分", used: 0, display: "120 积分", unit: "credits", aside: true },
-    ],
-    user: "138****8000",
-    signIn: "kept",
-  })
+  const { resetsAt, ...grant } = card.windows[0] // the reset rides the wall clock: its day is whatever day the test runs on
+  assert.deepEqual(
+    { ...card, windows: [grant, card.windows[1]] },
+    {
+      plan: "Loomy",
+      balance: "200 积分",
+      windows: [
+        { name: "每日赠送", used: 75, span: 86400, display: "20 / 80 积分", amount: 60, limit: 80, unit: "credits" },
+        { name: "永久积分", used: 0, display: "120 积分", unit: "credits", aside: true },
+      ],
+      user: "138****8000",
+      signIn: "kept",
+    },
+  )
+  assert.match(resetsAt, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T16:00:00.000Z$/) // a Beijing midnight, whatever the day
   const r = f.seen[0]
   assert.equal(r.method, "GET")
   assert.equal(r.url, "/api/v2/points/records?pageNo=1&pageSize=1&direction=debit&granularity=chat")

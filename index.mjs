@@ -193,7 +193,9 @@ function configModelOf(m) {
 // providerModelOf is one model as the provider's models hook spells it
 // (OpenCode's ModelInfo, minimax's modelOf): the provider's own id on
 // every record, capabilities' toolcall without the underscore, and the
-// cost's cache keys nested under cache.
+// cost's cache keys nested under cache. The rate rides the record — the
+// field the host reads to show the picker's multiplier — out of the name,
+// where it never belonged.
 function providerModelOf(m, providerID = ID) {
   return {
     id: m.id,
@@ -204,8 +206,40 @@ function providerModelOf(m, providerID = ID) {
     capabilities: { toolcall: m.toolcall !== false, reasoning: m.reasoning === true, attachment: m.vision === true },
     cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
     ...(m.free === true ? { free: true } : {}),
+    ...(m.rate !== undefined ? { rate: m.rate } : {}),
     variants: VARIANTS,
   }
+}
+
+// fallbackOf is the models hook's fallback answer: the table it was given,
+// with the snapshot's rate and free bits put back on. The host spells the
+// config table into its own records field by field, and the rate and the
+// free bit are not fields it keeps — a table handed straight back would
+// reach the picker with neither. A row the snapshot doesn't know passes
+// untouched, and nothing is invented: an unrated model stays unrated. A
+// refused ask marks the table the way the host reads it —
+// Symbol.for("magpie.fellBack") on it — so the editor says the list is the
+// plugin's defaults and not the account's; a session that was never there,
+// or a live answer that said nothing, is no refusal and goes unmarked, as
+// it did when the table itself was handed back.
+function fallbackOf(p, refused) {
+  const known = new Map(FALLBACK_MODELS.map((m) => [m.id, m]))
+  const table = Object.fromEntries(
+    Object.entries(p?.models ?? {}).map(([key, m]) => {
+      const f = known.get(key)
+      if (!f) return [key, m]
+      return [
+        key,
+        {
+          ...m,
+          ...(m.rate === undefined && f.rate !== undefined ? { rate: f.rate } : {}),
+          ...(m.free === undefined && f.free === true ? { free: true } : {}),
+        },
+      ]
+    }),
+  )
+  if (refused) table[Symbol.for("magpie.fellBack")] = true
+  return table
 }
 
 // ---- the CAccount signature -------------------------------------------------------
@@ -1108,14 +1142,14 @@ export const LoomyAuthPlugin = async (input) => {
     // again, not be shown a stale table as if it were live.
     async models(p, { auth }) {
       const access = typeof auth?.access === "string" ? auth.access.trim() : ""
-      if (!access) return p.models
+      if (!access) return fallbackOf(p)
       try {
         const models = parseModels(await tokenGet("/api/v1/models", access))
-        if (!models.length) return p.models
+        if (!models.length) return fallbackOf(p)
         return Object.fromEntries(models.map((m) => [m.id, providerModelOf(m, p.id)]))
       } catch (e) {
         if (e?.signIn === "expired") throw e
-        return p.models
+        return fallbackOf(p, true)
       }
     },
   }
@@ -1167,4 +1201,5 @@ export const _internal = {
   parseModels,
   configModelOf,
   providerModelOf,
+  fallbackOf,
 }

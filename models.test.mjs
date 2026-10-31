@@ -1,10 +1,12 @@
 // The model catalog: parseModels reading the model gateway's /api/v1/models
 // answer (the OpenAI {data:[…]} envelope or the bare array), the capability
 // bits as the gateway's own catalog maps them, the point rate riding the
-// display name's tail, and the two shapes a model record is spelled in — the
-// config hook's fallback table with tool_call's underscore, the models hook's
-// ModelInfo with capabilities and the cost's nested cache — with the fallback
-// table answering whenever the live list can't be had.
+// display name's tail and then the record (the field the host's picker
+// reads), and the two shapes a model record is spelled in — the config
+// hook's fallback table with tool_call's underscore, the models hook's
+// ModelInfo with capabilities and the cost's nested cache — with the
+// fallback handed back whenever the live list can't be had, its rates and
+// free bits on, marked as a fallback after a refused ask.
 import "./nonet.mjs"
 import { afterEach, beforeEach, test } from "node:test"
 import assert from "node:assert/strict"
@@ -137,6 +139,7 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   assert.equal(m.id, "GLM-5.3-Flash")
   assert.equal(m.providerID, "loomy")
   assert.equal(m.name, "GLM 5.3 Flash") // the rate is out of the name
+  assert.equal(m.rate, "x0.8") // and on the record, where the host's picker reads it
   assert.deepEqual(m.api, { id: "GLM-5.3-Flash", url: f.origin + "/api/v1/chat/completions", npm: "@ai-sdk/openai-compatible" })
   assert.deepEqual(m.capabilities, { toolcall: true, reasoning: false, attachment: false }) // no underscore here
   assert.deepEqual(m.cost, { input: 0, output: 0, cache: { read: 0, write: 0 } }) // the cache keys nested
@@ -150,23 +153,58 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   assert.ok(!r.headers["content-md5"], "the account plane's signature never reaches the gateway")
 })
 
-test("an empty, failing or unparseable live list falls back to the table it was given", async () => {
+// the host spells the config table into its own records field by field, and
+// the rate and the free bit are not fields it keeps — what the models hook
+// is handed is the table without them
+const hostShaped = async () => {
   const hooks = await LoomyAuthPlugin({ client: {} })
-  const fallback = { keep: "me" }
-  const ask = () => hooks.provider.models({ id: "loomy", models: fallback }, { auth: { access: "tok" } })
-  f.route("GET /api/v1/models", () => json({ data: [] })) // empty: no models are invented
-  assert.equal(await ask(), fallback)
+  const config = {}
+  await hooks.config(config)
+  const table = Object.fromEntries(
+    Object.entries(config.provider.loomy.models).map(([key, m]) => {
+      const { rate, free, ...rest } = m
+      return [key, rest]
+    }),
+  )
+  return { hooks, table }
+}
+
+test("the fallback comes back with the snapshot's rate and free bits on", async () => {
+  const { hooks, table } = await hostShaped()
+  const out = await hooks.provider.models({ id: "loomy", models: table }, { auth: {} })
+  assert.deepEqual(out["GLM-5.3-Flash"], { ...table["GLM-5.3-Flash"], rate: "x0.8" }) // the record with the rate back on, nothing else moved
+  assert.equal(out["spark-x2.6"].rate, "x0.0")
+  assert.equal(out["spark-x2.6"].free, true) // the free bit the round-trip took, back on
+  assert.equal(out["auto"].rate, undefined) // no declaration, none invented
+  assert.equal("free" in out["auto"], false)
+  assert.ok(!(Symbol.for("magpie.fellBack") in out)) // no session is no refused ask
+  assert.equal("rate" in table["GLM-5.3-Flash"], false) // the table handed in keeps itself to itself
+  // a row the snapshot doesn't know passes untouched
+  const mine = { ...table, "mine-custom": { id: "mine-custom", name: "Mine" } }
+  const out2 = await hooks.provider.models({ id: "loomy", models: mine }, { auth: {} })
+  assert.deepEqual(out2["mine-custom"], { id: "mine-custom", name: "Mine" })
+})
+
+test("an empty live list answers the rates unmarked; a failed ask marks the table it hands back", async () => {
+  const { hooks, table } = await hostShaped()
+  f.route("GET /api/v1/models", () => json({ data: [] })) // an ok answer that said nothing: no models are invented
+  const empty = await hooks.provider.models({ id: "loomy", models: table }, { auth: { access: "tok" } })
+  assert.equal(empty["GLM-5.3-Flash"].rate, "x0.8")
+  assert.ok(!(Symbol.for("magpie.fellBack") in empty))
   f.route("GET /api/v1/models", () => json({ boom: true }, 500)) // HTTP-level failure
-  assert.equal(await ask(), fallback)
-  f.route("GET /api/v1/models", () => text("not json")) // unparseable
-  assert.equal(await ask(), fallback)
+  const refused = await hooks.provider.models({ id: "loomy", models: table }, { auth: { access: "tok" } })
+  assert.equal(refused[Symbol.for("magpie.fellBack")], true) // the editor says the list is the plugin's defaults
+  assert.equal(refused["GLM-5.3-Flash"].rate, "x0.8")
+  f.route("GET /api/v1/models", () => text("not json")) // unparseable: a refused ask too
+  const garbage = await hooks.provider.models({ id: "loomy", models: table }, { auth: { access: "tok" } })
+  assert.equal(garbage[Symbol.for("magpie.fellBack")], true)
   assert.equal(f.seen.length, 3)
 })
 
-test("no session asks nothing and answers the fallback", async () => {
-  const hooks = await LoomyAuthPlugin({ client: {} })
-  const fallback = { keep: "me" }
-  assert.equal(await hooks.provider.models({ id: "loomy", models: fallback }, { auth: {} }), fallback)
+test("no session asks nothing and answers the table it was given", async () => {
+  const { hooks, table } = await hostShaped()
+  const out = await hooks.provider.models({ id: "loomy", models: table }, { auth: {} })
+  assert.equal(out["GLM-5.3-Flash"].rate, "x0.8")
   assert.equal(f.seen.length, 0)
 })
 

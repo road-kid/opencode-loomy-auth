@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6 — 2026-10-31
+
+### Fixed
+
+- The model picker shows the point rates again: the rate rides the model
+  record the host reads — the live list's and the fallback table's alike,
+  the fallback's free bits with them.
+- A failed model-list ask marks the fallback it hands back, the way the
+  host reads it.
+
 ## 0.1.5 — 2026-10-28
 
 ### Fixed
