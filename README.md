@@ -71,14 +71,26 @@ rides the model record, the field the host's picker reads the multiplier
 from. A model the
 upstream itself declares free — the words 免费 in the name, or a rate of
 exactly zero — carries a `free` bit; no rate at all is not free. Rows that
-aren't chat models are left off the list — the image generators say so in
+aren't chat models stay off the chat list — the image generators say so in
 their `type`, and carry an image generator's name besides, read by the same
 words the host's own image-model catalog reads, so a row that ships no
-`type` at all is left off just the same: selecting one is selecting a
-failure. As they are off the plugin's list, they don't reach magpie's
-image-generation picker either — magpie draws a plugin's image models only
-out of the provider's own list, and keeps them among the chat models while
-it does (yetone/magpie#2792).
+`type` at all stays off just the same: chatting into one is a failure.
+
+The image generators come back beside the chat list from a roster the
+plugin itself keeps — the three it vouches for, each under the display
+name the roster gives it, with the live row's own facts (the limits, the
+capability bits) riding beside. An entry is in the table only while the
+live catalog names its id: a generator Loomy retires leaves at the next
+answer with no release needed, and a generator it adds waits for the
+release that names it here. No entry is in the fallback tables — with no
+live answer there is no proof a generator still exists, and a dead draw
+entry is what the roster exists to prevent. On the host side a listed
+generator lands in the provider's Image models row when its id is one the
+host's own image-model catalog reads (`qwen-image`, `seedream`… —
+`Hy-Image` is not among those words), and until the host learns to keep a
+plugin's generators out of the chat list too (yetone/magpie#2792) they
+show there as chips as well: leave them unticked, and no agent chats into
+one.
 
 The live list is the source of truth and wins the moment it answers. Without
 a session, on an empty answer or a failed ask, the plugin falls back to the
@@ -107,10 +119,9 @@ served on that day, kept here as a field guide:
 
 The three image-generation rows declare `output_modalities: ["image"]` —
 they draw pictures rather than answer in text, and how their answers ride
-the chat endpoint is unverified. A model of theirs ticked in the provider's
-editor while an older build still listed it stays on the editor's chips as
-a pick the list no longer knows — untick it there and the chips are the
-chat models alone again.
+the chat endpoint is unverified. What a model's editor chip says beside an
+older build's list: a generator ticked then and unticked now is the
+roster's entry back again, no longer a pick the list has forgotten.
 
 ## Usage
 

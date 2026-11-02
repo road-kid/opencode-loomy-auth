@@ -2,11 +2,18 @@
 
 ## 0.1.7 — 2026-11-02
 
+### Added
+
+- The three image generators ride beside the chat list from a roster the
+  plugin keeps, each only while the live catalog still names its id — a
+  retired one leaves with no release, a new one waits for the release
+  that vouches for it. The fallback tables carry none.
+
 ### Fixed
 
-- A model row carrying an image generator's name stays off the list even
-  when the row ships no `type` at all — the same words the host's own
-  image-model catalog reads.
+- A model row carrying an image generator's name stays off the chat list
+  even when the row ships no `type` at all — the same words the host's
+  own image-model catalog reads.
 
 ## 0.1.6 — 2026-10-31
 

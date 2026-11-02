@@ -48,11 +48,14 @@ const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrb
 // snapshot of that catalog as measured live on 2026-10-28, a first install's
 // guide until the answer can be had (and the fallback whenever it can't) —
 // the live list is the only source of truth and wins the moment it answers.
-// The image generators the gateway also lists are not in the table:
-// parseModels drops every row whose type isn't chat, every row whose id or
-// name carries an image generator's name — the same words the host's own
-// image-model catalog reads, for the row that ships no type at all — and
-// the fallback keeps to the chat models for the same reason. The rates and the free bits are
+// The image generators the gateway also lists are not chat choices:
+// parseModels keeps every such row off the chat list (by its type, and by
+// the generator's name it carries — the same words the host's own
+// image-model catalog reads, for the row that ships no type at all), and
+// the roster below puts back the generators this plugin vouches for, each
+// only while the live catalog still names it. The fallback keeps to the
+// chat models: with no live answer there is no proof a generator still
+// exists, and a dead draw entry is what the roster exists to prevent. The rates and the free bits are
 // copied as the upstream declares them, and a missing toolcall bit — auto's
 // record carries none — still reads as the OpenAI-compatible default, tools
 // on, the way the two shapes below spell it.
@@ -139,6 +142,20 @@ const IMAGE_WORDS = [
   "sensenova-u1",
 ]
 
+// the image generators this plugin vouches for, one entry each, as measured
+// live on 2026-11-02 — the roster a release maintains. An entry reaches the
+// table only while the live catalog names its id: a generator Loomy retires
+// leaves at the next answer, with no release needed, and one it adds waits
+// for the release that names it here. The name is the entry's display name;
+// the row's own facts (the limits, the capability bits) ride beside it. No
+// entry goes into the fallback tables — the config hook's and a session's
+// short defaults — where no live answer could ever gate it.
+const IMAGE_MODELS = [
+  { id: "Hy-Image-3.5-preview", name: "Hy image 3.5 preview" },
+  { id: "doubao-seedream-5-lite", name: "Doubao seedream 5 lite" },
+  { id: "qwen-image-3.0-pro", name: "qwen image 3.0 pro" },
+]
+
 // parseModels reads the model gateway's /api/v1/models answer — the OpenAI
 // {data:[…]} envelope, or the bare array the gateway has also been seen in —
 // as the short model records both shapes below are built from. Rows without
@@ -153,49 +170,85 @@ const IMAGE_WORDS = [
 // row carries of each set — the client's own normalizer reads the same two
 // sets. (This is the models interface alone; the points plane's two-layer
 // data has no business here.)
-function parseModels(payload) {
-  const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
-  const pick = (row, keys) => {
-    for (const key of keys) {
-      const value = posInt(row?.[key])
-      if (value !== undefined) return value
-    }
-    return undefined
+
+// limitOf is a row's first limit among the keys of one set
+function limitOf(row, keys) {
+  for (const key of keys) {
+    const value = posInt(row?.[key])
+    if (value !== undefined) return value
   }
+  return undefined
+}
+
+// rowModelOf is one gateway row, chat or generator alike, as a short model
+// record: the facts are the row's own — the rate suffix off its name, the
+// free bit, the capability bits, the two limits — whatever list the row
+// serves
+function rowModelOf(row, displayName) {
+  const id = typeof row?.id === "string" ? row.id.trim() : ""
+  const { name, rate } = splitRateSuffix(displayName)
+  // free is the upstream's own declaration, nothing inferred: the words
+  // 免费 in the display name, or a rate of exactly zero
+  const free = /免费/.test(displayName) || (rate !== undefined && /^x0(\.0+)?$/i.test(rate.trim()))
+  const caps = plainObject(row.capabilities)
+  const hasModal = (want) =>
+    (Array.isArray(caps?.input_modalities) ? caps.input_modalities : []).some(
+      (item) => typeof item === "string" && item.toLowerCase() === want
+    )
+  return {
+    id,
+    name,
+    rate,
+    free,
+    toolcall: caps === undefined || caps.function_calling === true,
+    reasoning: caps?.reasoning === true || isReasoningModel(id),
+    vision: caps?.vision === true || hasModal("image"),
+    context: limitOf(row, ["context_length", "context_window", "input_token_limit", "max_input_tokens", "maxInputTokens"]),
+    output: limitOf(row, ["max_output_tokens", "max_completion_tokens", "max_tokens", "maxOutputTokens"]),
+  }
+}
+
+// the envelope's rows, either shape the gateway answers in
+const rowsOf = (payload) => (Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [])
+
+function parseModels(payload) {
   const out = []
-  for (const row of rows) {
+  for (const row of rowsOf(payload)) {
     const id = typeof row?.id === "string" ? row.id.trim() : ""
     if (!id) continue
     const displayName = typeof row.name === "string" && row.name.trim() ? row.name.trim() : id
     // a row that isn't a chat model — the image generators say so in their
     // type, and an image generator's name tells the same story when the
-    // row ships no type at all — is no choice to offer: selecting one is
-    // selecting a failure
+    // row ships no type at all — is no choice to chat with: selecting one
+    // is selecting a failure. The roster puts the vouched-for ones back
+    // beside this list, gated on the live answer, as imageModelsOf does.
     if (
       (typeof row?.type === "string" && row.type.trim() && row.type.trim() !== "chat") ||
       IMAGE_WORDS.some((w) => `${id}\n${displayName}`.toLowerCase().includes(w))
     )
       continue
-    const { name, rate } = splitRateSuffix(displayName)
-    // free is the upstream's own declaration, nothing inferred: the words
-    // 免费 in the display name, or a rate of exactly zero
-    const free = /免费/.test(displayName) || (rate !== undefined && /^x0(\.0+)?$/i.test(rate.trim()))
-    const caps = plainObject(row.capabilities)
-    const hasModal = (want) =>
-      (Array.isArray(caps?.input_modalities) ? caps.input_modalities : []).some(
-        (item) => typeof item === "string" && item.toLowerCase() === want
-      )
-    out.push({
-      id,
-      name,
-      rate,
-      free,
-      toolcall: caps === undefined || caps.function_calling === true,
-      reasoning: caps?.reasoning === true || isReasoningModel(id),
-      vision: caps?.vision === true || hasModal("image"),
-      context: pick(row, ["context_length", "context_window", "input_token_limit", "max_input_tokens", "maxInputTokens"]),
-      output: pick(row, ["max_output_tokens", "max_completion_tokens", "max_tokens", "maxOutputTokens"]),
-    })
+    out.push(rowModelOf(row, displayName))
+  }
+  return out
+}
+
+// imageModelsOf is the roster's entries the live catalog still names, as
+// model records: the row's own facts, the roster's display name, and what
+// a generator is — no tools, no thinking — however its row reads
+function imageModelsOf(payload) {
+  const listed = new Map(
+    rowsOf(payload).map((row) => [typeof row?.id === "string" ? row.id.trim().toLowerCase() : "", row])
+  )
+  const out = []
+  for (const entry of IMAGE_MODELS) {
+    const row = listed.get(entry.id.toLowerCase())
+    if (!row) continue
+    const displayName = typeof row.name === "string" && row.name.trim() ? row.name.trim() : entry.name
+    const m = rowModelOf(row, displayName)
+    m.name = entry.name
+    m.toolcall = false
+    m.reasoning = false
+    out.push(m)
   }
   return out
 }
@@ -1165,7 +1218,10 @@ export const LoomyAuthPlugin = async (input) => {
   provider: {
     id: ID,
     // the live list off the model gateway, asked with the session token:
-    // it wins when it answers with anything usable, and the fallback table
+    // the chat models, and beside them the image generators the roster
+    // vouches for, each only while this answer still names it — it wins
+    // when it answers with anything usable, and the fallback table (chat
+    // models alone, no gated entry without a live answer to gate it by)
     // answers when there is no session to ask with, when the answer parses
     // to nothing, or when the ask fails any other way. The one failure
     // passed on is the sign-in's end — magpie should ask for the sign-in
@@ -1174,7 +1230,8 @@ export const LoomyAuthPlugin = async (input) => {
       const access = typeof auth?.access === "string" ? auth.access.trim() : ""
       if (!access) return fallbackOf(p)
       try {
-        const models = parseModels(await tokenGet("/api/v1/models", access))
+        const payload = await tokenGet("/api/v1/models", access)
+        const models = [...parseModels(payload), ...imageModelsOf(payload)]
         if (!models.length) return fallbackOf(p)
         return Object.fromEntries(models.map((m) => [m.id, providerModelOf(m, p.id)]))
       } catch (e) {
@@ -1229,7 +1286,9 @@ export const _internal = {
   beijingCycleResetAt,
   splitRateSuffix,
   IMAGE_WORDS,
+  IMAGE_MODELS,
   parseModels,
+  imageModelsOf,
   configModelOf,
   providerModelOf,
   fallbackOf,

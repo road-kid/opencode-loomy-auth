@@ -255,3 +255,60 @@ test("a row that ships no type still reads as a drawer by its id or name", () =>
     assert.equal(_internal.parseModels([{ id: `x-${word}-9`, name: "Whatever" }]).length, 0, word)
   }
 })
+
+test("the roster's generators ride beside the chat list, each only while the live answer names it", () => {
+  const row = (id, name) => ({
+    id,
+    name,
+    type: "image",
+    context_length: 100000,
+    max_output_tokens: 131072,
+    capabilities: { reasoning: false, vision: true, function_calling: false, input_modalities: ["text", "image"], output_modalities: ["image"] },
+  })
+  const live = { data: [row("Hy-Image-3.5-preview", "Hy image 3.5 preview"), row("qwen-image-3.0-pro", "qwen image 3.0 pro")] }
+  const out = _internal.imageModelsOf(live)
+  // the named ones only, the case of the answer's own id kept for the asks
+  assert.deepEqual(out.map((m) => m.id), ["Hy-Image-3.5-preview", "qwen-image-3.0-pro"])
+  const hy = out[0]
+  assert.equal(hy.name, _internal.IMAGE_MODELS[0].name) // the roster's display name
+  assert.equal(hy.toolcall, false) // a generator draws: no tools, no thinking, however the row reads
+  assert.equal(hy.reasoning, false)
+  assert.equal(hy.vision, true) // the row's own facts ride beside
+  assert.equal(hy.context, 100000)
+  assert.equal(hy.output, 131072)
+  assert.equal(hy.rate, undefined) // a generator names no rate
+  // a case-spelled id still counts as named
+  assert.deepEqual(_internal.imageModelsOf({ data: [row("HY-IMAGE-3.5-PREVIEW", "whatever")] }).map((m) => m.id), ["HY-IMAGE-3.5-PREVIEW"])
+  // an id the answer no longer names is no entry, roster or not
+  assert.deepEqual(_internal.imageModelsOf({ data: [row("spark-x2.6", "Spark")] }), [])
+  assert.deepEqual(_internal.imageModelsOf(undefined), [])
+  // the chat parse keeps the generator rows off, whatever the roster does beside it
+  assert.deepEqual(_internal.parseModels(live), [])
+})
+
+test("the models hook serves the roster beside the chat models, and the fallback carries none", async () => {
+  f.route("GET /api/v1/models", () =>
+    json({
+      data: [
+        { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash(x0.8)", capabilities: { function_calling: true } },
+        {
+          id: "doubao-seedream-5-lite",
+          name: "Doubao seedream 5 lite",
+          type: "image",
+          capabilities: { reasoning: false, function_calling: false, input_modalities: ["text", "image"] },
+        },
+        { id: "mystery-image-9", name: "Mystery image 9", type: "image" }, // the roster doesn't vouch for it
+      ],
+    })
+  )
+  const hooks = await LoomyAuthPlugin({ client: {} })
+  const out = await hooks.provider.models({ id: "loomy", models: {} }, { auth: { access: "tok" } })
+  assert.deepEqual(Object.keys(out).sort(), ["GLM-5.3-Flash", "doubao-seedream-5-lite"]) // the chat model, and the one vouched-for generator the answer names
+  assert.equal(out["doubao-seedream-5-lite"].capabilities.toolcall, false)
+  assert.equal(out["doubao-seedream-5-lite"].rate, undefined)
+  // no session: the fallback answers, chat models alone — a gated entry
+  // without a live answer would be a dead one
+  const { hooks: again, table } = await hostShaped()
+  const off = await again.provider.models({ id: "loomy", models: table }, { auth: {} })
+  assert.equal("doubao-seedream-5-lite" in off, false)
+})
