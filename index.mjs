@@ -49,8 +49,10 @@ const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrb
 // guide until the answer can be had (and the fallback whenever it can't) —
 // the live list is the only source of truth and wins the moment it answers.
 // The image generators the gateway also lists are not in the table:
-// parseModels drops every row whose type isn't chat, and the fallback keeps
-// to the chat models for the same reason. The rates and the free bits are
+// parseModels drops every row whose type isn't chat, every row whose id or
+// name carries an image generator's name — the same words the host's own
+// image-model catalog reads, for the row that ships no type at all — and
+// the fallback keeps to the chat models for the same reason. The rates and the free bits are
 // copied as the upstream declares them, and a missing toolcall bit — auto's
 // record carries none — still reads as the OpenAI-compatible default, tools
 // on, the way the two shapes below spell it.
@@ -115,6 +117,28 @@ const posInt = (v) => {
 // capabilities bit
 const isReasoningModel = (id) => id.toLowerCase().includes("spark-x")
 
+// the words an image generator's id or name carries — the host's image
+// model catalog reads the very same words (gpt-image, dall-e, flux,
+// seedream, qwen-image…) — so a row that ships no type at all still reads
+// as the drawer it is. No chat model of this catalog carries any of them.
+const IMAGE_WORDS = [
+  "image",
+  "imagen",
+  "imagine",
+  "dall-e",
+  "flux",
+  "seedream",
+  "cogview",
+  "stable-diffusion",
+  "sdxl",
+  "wanx",
+  "wan2",
+  "kolors",
+  "hidream",
+  "banana",
+  "sensenova-u1",
+]
+
 // parseModels reads the model gateway's /api/v1/models answer — the OpenAI
 // {data:[…]} envelope, or the bare array the gateway has also been seen in —
 // as the short model records both shapes below are built from. Rows without
@@ -142,10 +166,16 @@ function parseModels(payload) {
   for (const row of rows) {
     const id = typeof row?.id === "string" ? row.id.trim() : ""
     if (!id) continue
-    // a row that isn't a chat model — the image generators say so — is no
-    // choice to offer: selecting one is selecting a failure
-    if (typeof row?.type === "string" && row.type.trim() && row.type.trim() !== "chat") continue
     const displayName = typeof row.name === "string" && row.name.trim() ? row.name.trim() : id
+    // a row that isn't a chat model — the image generators say so in their
+    // type, and an image generator's name tells the same story when the
+    // row ships no type at all — is no choice to offer: selecting one is
+    // selecting a failure
+    if (
+      (typeof row?.type === "string" && row.type.trim() && row.type.trim() !== "chat") ||
+      IMAGE_WORDS.some((w) => `${id}\n${displayName}`.toLowerCase().includes(w))
+    )
+      continue
     const { name, rate } = splitRateSuffix(displayName)
     // free is the upstream's own declaration, nothing inferred: the words
     // 免费 in the display name, or a rate of exactly zero
@@ -1198,6 +1228,7 @@ export const _internal = {
   onboardingAsideOf,
   beijingCycleResetAt,
   splitRateSuffix,
+  IMAGE_WORDS,
   parseModels,
   configModelOf,
   providerModelOf,

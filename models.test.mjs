@@ -236,3 +236,22 @@ test("a row that isn't a chat model is no choice to offer", () => {
     ["chat-one", "no-type"]
   )
 })
+
+test("a row that ships no type still reads as a drawer by its id or name", () => {
+  const rows = [
+    { id: "qwen-image-4.0", name: "Qwen Image 4.0" }, // the id says it alone
+    { id: "Hy-Image-4-preview", name: "Hy image 4 preview" }, // both say it
+    { id: "seedless-pro", name: "Doubao Seedream 6" }, // the name alone says it
+    { id: "chat-two", name: "Chat Two" }, // a typeless chat row stays
+    { id: "flash-three", type: "chat", name: "Flash Three" }, // a typed chat row stays
+  ]
+  assert.deepEqual(
+    _internal.parseModels(rows).map((m) => m.id),
+    ["chat-two", "flash-three"]
+  )
+  // the same words the host's own image-model catalog reads, so the plugin
+  // never disagrees with the host about what draws
+  for (const word of _internal.IMAGE_WORDS) {
+    assert.equal(_internal.parseModels([{ id: `x-${word}-9`, name: "Whatever" }]).length, 0, word)
+  }
+})

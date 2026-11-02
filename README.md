@@ -71,8 +71,14 @@ rides the model record, the field the host's picker reads the multiplier
 from. A model the
 upstream itself declares free — the words 免费 in the name, or a rate of
 exactly zero — carries a `free` bit; no rate at all is not free. Rows that
-aren't chat models (the image generators say so) are left off the list:
-selecting one is selecting a failure.
+aren't chat models are left off the list — the image generators say so in
+their `type`, and carry an image generator's name besides, read by the same
+words the host's own image-model catalog reads, so a row that ships no
+`type` at all is left off just the same: selecting one is selecting a
+failure. As they are off the plugin's list, they don't reach magpie's
+image-generation picker either — magpie draws a plugin's image models only
+out of the provider's own list, and keeps them among the chat models while
+it does (yetone/magpie#2792).
 
 The live list is the source of truth and wins the moment it answers. Without
 a session, on an empty answer or a failed ask, the plugin falls back to the
@@ -101,7 +107,10 @@ served on that day, kept here as a field guide:
 
 The three image-generation rows declare `output_modalities: ["image"]` —
 they draw pictures rather than answer in text, and how their answers ride
-the chat endpoint is unverified.
+the chat endpoint is unverified. A model of theirs ticked in the provider's
+editor while an older build still listed it stays on the editor's chips as
+a pick the list no longer knows — untick it there and the chips are the
+chat models alone again.
 
 ## Usage
 
