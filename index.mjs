@@ -195,6 +195,15 @@ function rowModelOf(row, displayName) {
     (Array.isArray(caps?.input_modalities) ? caps.input_modalities : []).some(
       (item) => typeof item === "string" && item.toLowerCase() === want
     )
+  // the reasoning efforts the row itself declares — the gateway's own
+  // enumeration of the levels it serves for this model, the same source the
+  // Loomy web client reads its picker from. The V1 side never looks at it
+  // (its variants are the fixed low/medium/high the client itself sends);
+  // the v2 side hangs its picker's levels off it. A present array is the
+  // declaration, an empty one included; no array is no declaration at all.
+  const efforts = Array.isArray(row.reasoning_efforts)
+    ? row.reasoning_efforts.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim())
+    : undefined
   return {
     id,
     name,
@@ -205,6 +214,7 @@ function rowModelOf(row, displayName) {
     vision: caps?.vision === true || hasModal("image"),
     context: limitOf(row, ["context_length", "context_window", "input_token_limit", "max_input_tokens", "maxInputTokens"]),
     output: limitOf(row, ["max_output_tokens", "max_completion_tokens", "max_tokens", "maxOutputTokens"]),
+    ...(efforts === undefined ? {} : { efforts }),
   }
 }
 
@@ -1369,26 +1379,26 @@ function v2DisplayName(m) {
   return brand === undefined ? raw : brand + raw.slice(head.length)
 }
 
-// the reasoning efforts each vendor's model really offers, keyed by the
-// lowercase id — the vendors' own enumerations, not one size for all: Kimi,
-// GLM and Spark ship low and high alone, DeepSeek, Qwen, MiniMax and MiMo
-// the full three (spark-x is the snapshot's X2.5 row, a Spark X the same
-// way). The gateway's own reasoning bit can't arbitrate here — it answers
-// true for every row it serves, models without a medium level among them —
-// so the levels hang from this table and nowhere else, and a row the table
-// doesn't know (auto included) hangs none: the host would let a picker
-// choose a level the gateway silently drops, and a level the vendor never
-// shipped is not this plugin's to claim.
-const V2_EFFORTS = {
-  "spark-x2.6": ["low", "high"],
-  "deepseek-v4.1-flash": ["low", "medium", "high"],
-  "minimax-m3": ["low", "medium", "high"],
-  "kimi-k2.6": ["low", "high"],
-  "qwen-3.8-max": ["low", "medium", "high"],
-  "qwen3.8-flash": ["low", "medium", "high"],
-  "glm-5.3-flash": ["low", "high"],
-  "mimo-v2.5": ["low", "medium", "high"],
-  "spark-x": ["low", "high"],
+// the fallback efforts for the snapshot's thinking ids, keyed by the
+// lowercase id — a measurement, not a vendor-docs guess: on 2026-11-04 the
+// live /api/v1/models served every thinking row the same five-value
+// declaration ["none","low","medium","high","xhigh"] (auto declares none),
+// and the snapshot's rows carry no declaration of their own, so these nine
+// hang what that day measured. The fallback table answers only while the
+// live list couldn't be had — the moment a live row arrives, its own
+// reasoning_efforts declaration (rowModelOf's efforts) takes over, whatever
+// the gateway says by then. An id the table doesn't know (auto included)
+// hangs none.
+const V2_FALLBACK_EFFORTS = {
+  "spark-x2.6": ["none", "low", "medium", "high", "xhigh"],
+  "deepseek-v4.1-flash": ["none", "low", "medium", "high", "xhigh"],
+  "minimax-m3": ["none", "low", "medium", "high", "xhigh"],
+  "kimi-k2.6": ["none", "low", "medium", "high", "xhigh"],
+  "qwen-3.8-max": ["none", "low", "medium", "high", "xhigh"],
+  "qwen3.8-flash": ["none", "low", "medium", "high", "xhigh"],
+  "glm-5.3-flash": ["none", "low", "medium", "high", "xhigh"],
+  "mimo-v2.5": ["none", "low", "medium", "high", "xhigh"],
+  "spark-x": ["none", "low", "medium", "high", "xhigh"],
 }
 
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
@@ -1430,12 +1440,21 @@ function modelV2Of(m, providerID = ID) {
     status: "active",
     enabled: true,
     time: { released: 0 },
-    // the efforts this id's row ships as variants: the id the picker reads,
-    // the body overlay the host merges into the request JSON — key spelled
-    // the way the gateway itself parses it, reasoningEffort, the camelCase
-    // field (measured live: the low setting ends the thinking early, the
-    // OpenAI snake_case spelling the gateway never reads)
-    variants: (V2_EFFORTS[m.id.toLowerCase()] ?? []).map((effort) => ({
+    // the efforts as variants: the row's own reasoning_efforts declaration
+    // first (the same source the Loomy web client reads, so a model new to
+    // the gateway carries its own levels without a release of this plugin),
+    // the fallback measurement for a snapshot id, none for a stranger that
+    // declares none. The id is what the picker reads, the body overlay what
+    // the host merges into the request JSON — key spelled the way the
+    // gateway itself parses it, reasoningEffort, the camelCase field (the
+    // OpenAI snake_case spelling the gateway never reads). "none" turns the
+    // thinking off (measured on Kimi: zero thinking) and "xhigh" is the
+    // deepest gear — the declaration is hung as it stands, whatever each
+    // vendor makes of it upstream. The picker's own Default sends no
+    // reasoningEffort at all, which is the gateway's default_reasoning_effort
+    // ("low") — the same choice the Loomy client makes, the semantics line
+    // up on their own.
+    variants: (m.efforts ?? V2_FALLBACK_EFFORTS[m.id.toLowerCase()] ?? []).map((effort) => ({
       id: effort,
       body: { reasoningEffort: effort },
     })),

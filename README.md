@@ -72,9 +72,10 @@ falls back to the built-in 2026-10-28 snapshot (chat models only). Bearer
 auth on the gateway calls is injected by the host itself. The rows carry
 the vendors' own display names — a model the name table doesn't know
 keeps its cleaned gateway name with the leading brand word set right —
-and the reasoning efforts each vendor really ships: the full
-low / medium / high on DeepSeek, Qwen, MiniMax and MiMo, low / high
-alone on Kimi, GLM and Spark, none on auto or an unknown model.
+and the reasoning efforts each gateway row itself declares
+(`reasoning_efforts`, the same source the Loomy web client reads:
+none / low / medium / high / xhigh, none being thinking off; the picker's
+Default sends no field and the gateway's own low default applies).
 
 ### What stays magpie-only
 

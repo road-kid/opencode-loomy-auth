@@ -24,16 +24,22 @@
   gateway name with only the leading brand word set to the official
   spelling — no title-casing past that, the version tokens as the
   gateway wrote them.
-- The reasoning efforts hang as variants by each vendor's own
-  enumeration, not one size for all: DeepSeek, Qwen, MiniMax and MiMo
-  ship low / medium / high, Kimi, GLM and Spark low / high alone, and
-  auto nothing. The picker reads the ids and the host merges the overlay
-  into the request — `reasoningEffort`, the camelCase field the gateway
-  itself parses (measured live: the low setting ends the thinking early;
-  the OpenAI snake_case spelling it never reads). The gateway's own
-  reasoning bit answers true for every row, so it can't arbitrate the
-  levels; a model the table doesn't know hangs none — a level the vendor
-  never shipped is not the plugin's to claim.
+- The reasoning efforts hang as variants from each gateway row's own
+  `reasoning_efforts` declaration — the same source the Loomy web client
+  reads its picker from, not a vendor-docs guess. Every thinking row
+  declares the five values none / low / medium / high / xhigh (none turns
+  the thinking off — measured on Kimi, zero thinking; xhigh is the deepest
+  gear, whatever each vendor makes of it upstream), and auto declares none.
+  The picker's own Default variant sends no `reasoningEffort` at all, which
+  lands on the gateway's `default_reasoning_effort` ("low") — the same
+  choice the Loomy client makes, the semantics line up on their own. A
+  model new to the gateway carries its own declaration, no release needed;
+  a row that declares nothing hangs nothing. The built-in snapshot's rows
+  carry no declaration, so they hang the five values measured for their
+  nine thinking ids on 2026-11-04 (the day every thinking row served the
+  same enumeration). The host merges the overlay into the request —
+  `reasoningEffort`, the camelCase field the gateway itself parses (the
+  OpenAI snake_case spelling it never reads).
 - The v2 rows ship `time.released: 0`. The desktop picker's visibility
   rule hides a model that has no show record while it is not the newest
   of its family and its release date parses; rows sharing one date with

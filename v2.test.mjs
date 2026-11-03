@@ -1,12 +1,12 @@
 // The opencode v2 adapter, against fakes the whole way: the default export's
 // shape beside the V1 named one, the registrations the setup makes on a fake
 // host context (the integration's name and phone-code method, the provider's
-// info and rows — the official display names, the reasoning efforts each
-// vendor really ships, the zeroed release date), the sign-in re-wrapped into
-// the v2 credential shape, the live model list behind a signed-in connection
-// and the snapshot behind none or a refused ask, an empty context loading to
-// a cleanup alone, and the registrations — the event subscription's abort
-// among them — given up at cleanup.
+// info and rows — the official display names, the reasoning efforts the
+// gateway rows themselves declare, the zeroed release date), the sign-in
+// re-wrapped into the v2 credential shape, the live model list behind a
+// signed-in connection and the snapshot behind none or a refused ask, an
+// empty context loading to a cleanup alone, and the registrations — the
+// event subscription's abort among them — given up at cleanup.
 import "./nonet.mjs"
 import { test } from "node:test"
 import assert from "node:assert/strict"
@@ -147,25 +147,28 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     // is not its family's newest, and an empty date — no parseable date at
     // all — keeps the row visible by default
     assert.equal(deepseek.time.released, 0)
-    // the reasoning efforts ride as variants: the body overlay the host
-    // merges into the request, the gateway's own camelCase spelling —
-    // DeepSeek ships the full three
+    // the snapshot rows carry no declaration of their own, so the fallback
+    // measurement answers: every thinking id the same five values measured
+    // on 2026-11-04 — none (thinking off) through xhigh — the body overlay
+    // the host merges into the request, the gateway's own camelCase spelling
     assert.deepEqual(deepseek.variants, [
+      { id: "none", body: { reasoningEffort: "none" } },
       { id: "low", body: { reasoningEffort: "low" } },
       { id: "medium", body: { reasoningEffort: "medium" } },
       { id: "high", body: { reasoningEffort: "high" } },
+      { id: "xhigh", body: { reasoningEffort: "xhigh" } },
     ])
     assert.equal(deepseek.rate, undefined) // the v2 record has no field for it
     assert.equal(deepseek.free, undefined)
-    // two more rows spot-checked against the tables: the efforts are each
-    // vendor's own enumeration, not one size for all, and auto thinks at no
-    // chosen level at all
+    // two more rows spot-checked against the tables: the fallback's five
+    // values on every thinking id alike, and auto — no declaration, no
+    // entry — hangs none at all
     const kimi = entry.models.find((m) => m.id === "Kimi-k2.6")
     assert.ok(kimi, "the snapshot's Kimi row is among them")
     assert.equal(kimi.name, "Kimi K2.6")
     assert.deepEqual(
       kimi.variants.map((v) => v.id),
-      ["low", "high"]
+      ["none", "low", "medium", "high", "xhigh"]
     )
     const auto = entry.models.find((m) => m.id === "auto")
     assert.ok(auto, "the auto row is among them")
@@ -227,8 +230,16 @@ test("a signed-in connection refreshes the live rows and replays the transform",
   const up = await fakeLoomy()
   const restore = pointAt(up.origin)
   try {
+    // the chat row declares its own efforts — the gateway's five-value
+    // enumeration, the same source the Loomy web client reads — and the
+    // auto row declares none at all
     up.route("GET /api/v1/models", () =>
-      json({ data: [{ id: "live-model-a", name: "Live A", type: "chat", context_length: 4096, max_output_tokens: 1024 }] })
+      json({
+        data: [
+          { id: "live-model-a", name: "Live A", type: "chat", context_length: 4096, max_output_tokens: 1024, reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
+          { id: "auto", name: "自动 · 均衡", type: "chat" },
+        ],
+      })
     )
     const connection = {
       active: async () => ({ integrationID: "loomy", id: "conn-1" }),
@@ -246,10 +257,22 @@ test("a signed-in connection refreshes the live rows and replays the transform",
     const models = adds[0].models
     assert.deepEqual(
       models.map((m) => m.id),
-      ["live-model-a"] // the live row alone: no snapshot rows, no image generators
+      ["live-model-a", "auto"] // the live rows alone: no snapshot rows, no image generators
     )
     assert.equal(models[0].limit.context, 4096)
     assert.equal(models[0].limit.output, 1024)
+    // the declared efforts hang as the variants, in the row's own order,
+    // whatever the fallback table would say — the declaration is the source
+    assert.deepEqual(models[0].variants, [
+      { id: "none", body: { reasoningEffort: "none" } },
+      { id: "low", body: { reasoningEffort: "low" } },
+      { id: "medium", body: { reasoningEffort: "medium" } },
+      { id: "high", body: { reasoningEffort: "high" } },
+      { id: "xhigh", body: { reasoningEffort: "xhigh" } },
+    ])
+    // the auto row declares no efforts: none hang, the fallback table has no
+    // entry for it either
+    assert.deepEqual(models[1].variants, [])
     cleanup()
   } finally {
     await up.close()
@@ -257,12 +280,19 @@ test("a signed-in connection refreshes the live rows and replays the transform",
   }
 })
 
-test("a row the tables don't know: the cleaned gateway name, the brand word set right, no efforts", async () => {
+test("a row the tables don't know: the cleaned gateway name, the brand word set right, the efforts as declared", async () => {
   const up = await fakeLoomy()
   const restore = pointAt(up.origin)
   try {
+    // two strangers: one declares its own efforts (with junk among them — a
+    // non-string is dropped, a padded string trimmed), one declares none
     up.route("GET /api/v1/models", () =>
-      json({ data: [{ id: "brand-new-x", type: "chat", name: "qwen brand new(x1.5)", capabilities: { function_calling: true } }] })
+      json({
+        data: [
+          { id: "brand-new-x", type: "chat", name: "qwen brand new(x1.5)", capabilities: { function_calling: true } },
+          { id: "vendor-fresh-9", type: "chat", name: "Kimi fresh 9", reasoning_efforts: [" low ", 7, "ultra"] },
+        ],
+      })
     )
     const connection = {
       active: async () => ({ integrationID: "loomy", id: "conn-1" }),
@@ -281,7 +311,16 @@ test("a row the tables don't know: the cleaned gateway name, the brand word set 
     // the rate suffix off the name, the leading brand word set to its
     // official spelling, and nothing else about the name touched
     assert.equal(stranger.name, "Qwen brand new")
-    assert.deepEqual(stranger.variants, []) // a level no table vouched for is never claimed
+    assert.deepEqual(stranger.variants, []) // no declaration, no table entry: a level is never claimed
+    // a stranger that declares its efforts hangs exactly what it declared —
+    // a model new to the gateway is supported the day it appears, no
+    // release of this plugin needed
+    const fresh = adds[0].models.find((m) => m.id === "vendor-fresh-9")
+    assert.ok(fresh, "the declaring stranger came through the live list")
+    assert.deepEqual(fresh.variants, [
+      { id: "low", body: { reasoningEffort: "low" } },
+      { id: "ultra", body: { reasoningEffort: "ultra" } },
+    ])
     cleanup()
   } finally {
     await up.close()
