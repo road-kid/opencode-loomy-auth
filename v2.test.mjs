@@ -1,11 +1,12 @@
 // The opencode v2 adapter, against fakes the whole way: the default export's
 // shape beside the V1 named one, the registrations the setup makes on a fake
 // host context (the integration's name and phone-code method, the provider's
-// info and rows), the sign-in re-wrapped into the v2 credential shape, the
-// live model list behind a signed-in connection and the snapshot behind none
-// or a refused ask, an empty context loading to a cleanup alone, and the
-// registrations — the event subscription's abort among them — given up at
-// cleanup.
+// info and rows — the official display names, the reasoning efforts each
+// vendor really ships, the zeroed release date), the sign-in re-wrapped into
+// the v2 credential shape, the live model list behind a signed-in connection
+// and the snapshot behind none or a refused ask, an empty context loading to
+// a cleanup alone, and the registrations — the event subscription's abort
+// among them — given up at cleanup.
 import "./nonet.mjs"
 import { test } from "node:test"
 import assert from "node:assert/strict"
@@ -133,6 +134,7 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     assert.ok(deepseek, "the snapshot's DeepSeek row is among them")
     assert.equal(deepseek.modelID, "DeepSeek-V4.1-Flash")
     assert.equal(deepseek.providerID, "loomy")
+    assert.equal(deepseek.name, "DeepSeek V4.1 Flash") // the official spelling
     assert.equal(typeof deepseek.capabilities.tools, "boolean")
     assert.deepEqual(deepseek.capabilities.input, ["text", "image"]) // a vision row
     assert.deepEqual(deepseek.capabilities.output, ["text"])
@@ -141,9 +143,13 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     assert.equal(deepseek.cost[0].cache.write, 0)
     assert.equal(deepseek.status, "active")
     assert.equal(deepseek.enabled, true)
-    assert.equal(typeof deepseek.time.released, "number")
+    // a zero release date: the desktop picker's rule hides a dated row that
+    // is not its family's newest, and an empty date — no parseable date at
+    // all — keeps the row visible by default
+    assert.equal(deepseek.time.released, 0)
     // the reasoning efforts ride as variants: the body overlay the host
-    // merges into the request, the gateway's own camelCase spelling
+    // merges into the request, the gateway's own camelCase spelling —
+    // DeepSeek ships the full three
     assert.deepEqual(deepseek.variants, [
       { id: "low", body: { reasoningEffort: "low" } },
       { id: "medium", body: { reasoningEffort: "medium" } },
@@ -151,6 +157,20 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     ])
     assert.equal(deepseek.rate, undefined) // the v2 record has no field for it
     assert.equal(deepseek.free, undefined)
+    // two more rows spot-checked against the tables: the efforts are each
+    // vendor's own enumeration, not one size for all, and auto thinks at no
+    // chosen level at all
+    const kimi = entry.models.find((m) => m.id === "Kimi-k2.6")
+    assert.ok(kimi, "the snapshot's Kimi row is among them")
+    assert.equal(kimi.name, "Kimi K2.6")
+    assert.deepEqual(
+      kimi.variants.map((v) => v.id),
+      ["low", "high"]
+    )
+    const auto = entry.models.find((m) => m.id === "auto")
+    assert.ok(auto, "the auto row is among them")
+    assert.equal(auto.name, "自动 · 均衡")
+    assert.deepEqual(auto.variants, [])
     cleanup()
   } finally {
     await up.close()
@@ -230,6 +250,38 @@ test("a signed-in connection refreshes the live rows and replays the transform",
     )
     assert.equal(models[0].limit.context, 4096)
     assert.equal(models[0].limit.output, 1024)
+    cleanup()
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("a row the tables don't know: the cleaned gateway name, the brand word set right, no efforts", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    up.route("GET /api/v1/models", () =>
+      json({ data: [{ id: "brand-new-x", type: "chat", name: "qwen brand new(x1.5)", capabilities: { function_calling: true } }] })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    const { ctx, seen } = fakeCtx(connection)
+    const cleanup = await loomy.setup(ctx)
+    const adds = []
+    seen.providerTransforms[0]({
+      get: () => undefined,
+      add: (entry) => adds.push(entry),
+      models: { set: (id, models) => adds.push({ models }) },
+    })
+    const stranger = adds[0].models.find((m) => m.id === "brand-new-x")
+    assert.ok(stranger, "the stranger came through the live list")
+    // the rate suffix off the name, the leading brand word set to its
+    // official spelling, and nothing else about the name touched
+    assert.equal(stranger.name, "Qwen brand new")
+    assert.deepEqual(stranger.variants, []) // a level no table vouched for is never claimed
     cleanup()
   } finally {
     await up.close()

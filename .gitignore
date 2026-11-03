@@ -3,3 +3,4 @@ node_modules/
 *.tgz
 .mimosa/
 .loomy-quota.json
+.tmp-*/

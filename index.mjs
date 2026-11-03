@@ -1324,20 +1324,72 @@ const V2_METHOD_ID = "phone-code" // the method's id under the loomy integration
 // spelling of the provider record's package field ("@ai-sdk/openai-compatible"
 // remaps onto the same module)
 const V2_PACKAGE = "@opencode/ai/providers/openai-compatible"
-const V2_RELEASED = Date.parse("2026-10-28T00:00:00Z") // the snapshot's date, stamped on every row
 
-// the reasoning efforts as variants: the id the picker reads and the body
-// overlay the host merges into the request JSON, key spelled the way the
-// gateway itself parses it — reasoningEffort, the camelCase field (measured
-// live: the low setting ends the thinking early, the OpenAI snake_case
-// spelling the gateway never reads). Every model hangs the levels, the
-// plain ones included, the gateway ignoring the field where it doesn't
-// apply — the same reason the V1 table did.
-const V2_VARIANTS = [
-  { id: "low", body: { reasoningEffort: "low" } },
-  { id: "medium", body: { reasoningEffort: "medium" } },
-  { id: "high", body: { reasoningEffort: "high" } },
-]
+// the display names as the vendors themselves spell them, keyed by the
+// lowercase model id — the ids arrive in any case (Kimi-k2.6, qwen3.8-flash,
+// glm-5.3-flash) and the gateway's own names are marketing strings
+// ("Spark-X2.6 正式版(限时免费)", "qwen 3.8 flash"), so the rows carry the
+// official spellings read off each vendor's own pages
+const V2_NAMES = {
+  "spark-x2.6": "Spark X2.6",
+  "deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "minimax-m3": "MiniMax M3",
+  "kimi-k2.6": "Kimi K2.6",
+  "qwen-3.8-max": "Qwen 3.8 Max",
+  "qwen3.8-flash": "Qwen 3.8 Flash",
+  "glm-5.3-flash": "GLM 5.3 Flash",
+  "mimo-v2.5": "MiMo V2.5",
+  auto: "自动 · 均衡",
+}
+
+// the brand words in the vendors' own spellings, for a row the name table
+// doesn't know: the gateway writes its brand words in any case (qwen, GLM,
+// kimi…) and the leading word alone is set right — no title-casing past it,
+// the version tokens kept as the gateway wrote them
+const V2_BRANDS = {
+  spark: "Spark",
+  deepseek: "DeepSeek",
+  minimax: "MiniMax",
+  kimi: "Kimi",
+  qwen: "Qwen",
+  glm: "GLM",
+  mimo: "MiMo",
+}
+
+// v2DisplayName is such a stranger's display name: the record's own name
+// (the FALLBACK and live rows both carry theirs without the rate suffix)
+// or its id, with the first segment — cut at a space or a hyphen — swapped
+// for the brand table's spelling when its lowercase reads as a brand word.
+// A name the table doesn't touch keeps itself whole.
+function v2DisplayName(m) {
+  const raw = m.name || m.id
+  const at = raw.search(/[\s-]/)
+  const head = at === -1 ? raw : raw.slice(0, at)
+  const brand = V2_BRANDS[head.toLowerCase()]
+  return brand === undefined ? raw : brand + raw.slice(head.length)
+}
+
+// the reasoning efforts each vendor's model really offers, keyed by the
+// lowercase id — the vendors' own enumerations, not one size for all: Kimi,
+// GLM and Spark ship low and high alone, DeepSeek, Qwen, MiniMax and MiMo
+// the full three (spark-x is the snapshot's X2.5 row, a Spark X the same
+// way). The gateway's own reasoning bit can't arbitrate here — it answers
+// true for every row it serves, models without a medium level among them —
+// so the levels hang from this table and nowhere else, and a row the table
+// doesn't know (auto included) hangs none: the host would let a picker
+// choose a level the gateway silently drops, and a level the vendor never
+// shipped is not this plugin's to claim.
+const V2_EFFORTS = {
+  "spark-x2.6": ["low", "high"],
+  "deepseek-v4.1-flash": ["low", "medium", "high"],
+  "minimax-m3": ["low", "medium", "high"],
+  "kimi-k2.6": ["low", "high"],
+  "qwen-3.8-max": ["low", "medium", "high"],
+  "qwen3.8-flash": ["low", "medium", "high"],
+  "glm-5.3-flash": ["low", "high"],
+  "mimo-v2.5": ["low", "medium", "high"],
+  "spark-x": ["low", "high"],
+}
 
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
 let v2Disposers = [] // the run's registrations, given up wholesale at cleanup
@@ -1345,17 +1397,28 @@ let v2Disposers = [] // the run's registrations, given up wholesale at cleanup
 // modelV2Of is one short model record — a FALLBACK_MODELS row or a
 // parseModels row, the same shape either way — as a v2 Model.Info spells it:
 // the id three times over (the record's, the model's, the provider's), the
-// capability bits under the names the host reads there, the limits, a zero
-// cost — the gateway's rate is a Loomy fact the v2 record has no field for —
-// and the snapshot's date as the release. The rate, free and reasoning bits
+// display name from the official table (a stranger's cleaned gateway name
+// with its brand word set right), the capability bits under the names the
+// host reads there, the limits, a zero cost — the gateway's rate is a Loomy
+// fact the v2 record has no field for. The rate, free and reasoning bits
 // stay behind: fields the v2 record doesn't know, dropped rather than
 // smuggled in.
+//
+// The release time is a deliberate zero, and the picker is why. The desktop
+// host hides a model that has no show record of its own while it is not the
+// newest of its family and its release date parses — one row per family
+// survives, the rest fold away — and these rows ship no family at all, so a
+// shared date on every one of them (the snapshot's own stamp, say) would
+// leave a single "newest" visible and hide all the others. A zero the host
+// renders as an empty release date parses to no date, and the same official
+// rule keeps a model without a parseable date visible: every row shows by
+// default, the choosing left to the user.
 function modelV2Of(m, providerID = ID) {
   return {
     id: m.id,
     modelID: m.id,
     providerID,
-    name: m.name || m.id,
+    name: V2_NAMES[m.id.toLowerCase()] ?? v2DisplayName(m),
     package: V2_PACKAGE,
     capabilities: {
       tools: m.toolcall !== false,
@@ -1366,8 +1429,16 @@ function modelV2Of(m, providerID = ID) {
     cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
     status: "active",
     enabled: true,
-    time: { released: V2_RELEASED },
-    variants: V2_VARIANTS,
+    time: { released: 0 },
+    // the efforts this id's row ships as variants: the id the picker reads,
+    // the body overlay the host merges into the request JSON — key spelled
+    // the way the gateway itself parses it, reasoningEffort, the camelCase
+    // field (measured live: the low setting ends the thinking early, the
+    // OpenAI snake_case spelling the gateway never reads)
+    variants: (V2_EFFORTS[m.id.toLowerCase()] ?? []).map((effort) => ({
+      id: effort,
+      body: { reasoningEffort: effort },
+    })),
   }
 }
 

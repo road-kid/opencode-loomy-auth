@@ -69,7 +69,12 @@ hidden — the hiding is the design, a dead model is what it prevents. The
 model list is read live from the gateway's `/api/v1/models` and refreshes
 as the sign-in state changes; when the gateway is unreachable the plugin
 falls back to the built-in 2026-10-28 snapshot (chat models only). Bearer
-auth on the gateway calls is injected by the host itself.
+auth on the gateway calls is injected by the host itself. The rows carry
+the vendors' own display names — a model the name table doesn't know
+keeps its cleaned gateway name with the leading brand word set right —
+and the reasoning efforts each vendor really ships: the full
+low / medium / high on DeepSeek, Qwen, MiniMax and MiMo, low / high
+alone on Kimi, GLM and Spark, none on auto or an unknown model.
 
 ### What stays magpie-only
 

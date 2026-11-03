@@ -17,13 +17,30 @@
   path is skipped), or the directory dropped into
   `~/.config/opencode/plugins/` / `.opencode/plugins/`, discovered on its
   own and hot-reloaded on file changes.
-- On opencode v2 every model hangs the three reasoning efforts
-  (low / medium / high) as variants, the picker reading the ids and the
-  host merging the overlay into the request — `reasoningEffort`, the
-  camelCase field the gateway itself parses (measured live: the low
-  setting ends the thinking early; the OpenAI snake_case spelling it
-  never reads). The gateway ignores the field on the models that don't
-  think, so every model carries the levels, as the V1 table always did.
+- On opencode v2 the model rows carry the display names the vendors
+  themselves spell — the official spellings read off each vendor's own
+  pages (Kimi K2.6, Qwen 3.8 Flash, MiniMax M3, 自动 · 均衡 for auto),
+  keyed by the model id. A row the table doesn't know keeps its cleaned
+  gateway name with only the leading brand word set to the official
+  spelling — no title-casing past that, the version tokens as the
+  gateway wrote them.
+- The reasoning efforts hang as variants by each vendor's own
+  enumeration, not one size for all: DeepSeek, Qwen, MiniMax and MiMo
+  ship low / medium / high, Kimi, GLM and Spark low / high alone, and
+  auto nothing. The picker reads the ids and the host merges the overlay
+  into the request — `reasoningEffort`, the camelCase field the gateway
+  itself parses (measured live: the low setting ends the thinking early;
+  the OpenAI snake_case spelling it never reads). The gateway's own
+  reasoning bit answers true for every row, so it can't arbitrate the
+  levels; a model the table doesn't know hangs none — a level the vendor
+  never shipped is not the plugin's to claim.
+- The v2 rows ship `time.released: 0`. The desktop picker's visibility
+  rule hides a model that has no show record while it is not the newest
+  of its family and its release date parses; rows sharing one date with
+  no family would leave a single "newest" visible and fold the rest
+  away. A zero the host renders as an empty date parses to no date, and
+  the picker's own rule keeps a model without a parseable release date
+  visible — every model shows by default.
 - On opencode v2 the sign-in runs through `opencode auth login` (or
   `/connect` in the TUI): the Loomy integration, the phone-code way, the
   11-digit phone number, the six-digit SMS code (five minutes to live) —
