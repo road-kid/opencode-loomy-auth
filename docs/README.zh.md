@@ -12,8 +12,9 @@ provider 插件。用 Loomy 的手机验证码登录，对话经 Loomy 的 OpenA
 | `loomy` | 手机验证码（+86） | `loomyad.xunfei.cn`（账号平面 `account.xfinfr.com`） |
 
 本包导出 `LoomyAuthPlugin`（`loomy`）供 magpie 与 OpenCode v1 读取；从 0.2.0
-起另有面向 OpenCode ≥ 2.x 的默认导出（`{ id: "loomy-auth", setup }`）——
-一个包，两种宿主。
+起另有面向 OpenCode ≥ 2.x 的默认导出（`{ id: "loomy-auth", setup, server }`）
+——其中 `server` 就是同一个 V1 工厂，供读取对象式入口的宿主调用（magpie
+自己的加载器即属此类）。一个包，各种宿主。
 
 ## 安装
 
@@ -33,8 +34,9 @@ magpie quota                   # 积分卡片
 
 ## OpenCode v2
 
-从 0.2.0 起，本包以默认导出插件（`{ id: "loomy-auth", setup }`）的形态
-在 OpenCode ≥ 2.x 中加载，与 magpie 和 OpenCode v1 读取的命名导出并存。
+从 0.2.0 起，本包以默认导出插件（`{ id: "loomy-auth", setup, server }`）的
+形态在 OpenCode ≥ 2.x 中加载，与 magpie 和 OpenCode v1 读取的命名导出并存
+（magpie 新版加载器读的 `server` 也在同一个默认导出里）。
 同一份代码，同一种登录，同一个网关。
 
 ### 安装

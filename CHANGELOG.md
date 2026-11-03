@@ -4,10 +4,14 @@
 
 ### Added
 
-- One package, two hosts: beside the named `LoomyAuthPlugin` export the
+- One package, every host: beside the named `LoomyAuthPlugin` export the
   magpie and OpenCode v1 hosts read (unchanged), the package now ships a
-  default export shaped `{ id: "loomy-auth", setup }` that OpenCode ≥ 2.x
-  loads. The install stays what it was — `magpie plugin add` or the npm
+  default export shaped `{ id: "loomy-auth", setup, server }` — the
+  `setup` OpenCode ≥ 2.x loads, the `server` function the hosts that read
+  object entrypoints call (magpie's own loader does, since its 2026-11-03
+  build: a default export carrying an id is read by the server under it,
+  the named-export scan never runs). The install stays what it was —
+  `magpie plugin add` or the npm
   name on the magpie side; on the v2 side the `plugins` key of
   `opencode.json(c)` (the npm name, or a local directory path — a file
   path is skipped), or the directory dropped into

@@ -13,8 +13,10 @@ daily first-login refresh that renews the grant land on the Usage card.
 | `loomy` | phone code (+86) | `loomyad.xunfei.cn` (account plane `account.xfinfr.com`) |
 
 The package exports `LoomyAuthPlugin` (`loomy`) for magpie and OpenCode
-v1, and — from 0.2.0 — a default export (`{ id: "loomy-auth", setup }`)
-for OpenCode ≥ 2.x. One package, both hosts.
+v1, and — from 0.2.0 — a default export (`{ id: "loomy-auth", setup,
+server }`) for OpenCode ≥ 2.x, with the `server` function the same V1
+factory for hosts that read object entrypoints (magpie's own loader
+among them). One package, every host.
 
 ## Install
 

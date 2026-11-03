@@ -83,6 +83,20 @@ test("the default export is a v2 definition and the V1 export stands beside it",
   assert.equal(typeof LoomyAuthPlugin, "function") // the V1 form, untouched
 })
 
+test("the default export carries the object-entrypoint server magpie's host reads", async () => {
+  // magpie's loader: a default export carrying an id is read by its server
+  // function alone — the named-export scan under it never runs. The server
+  // must therefore be the V1 factory itself, answering the V1 hooks on the
+  // V1 input.
+  assert.equal(typeof loomy.server, "function")
+  const hooks = await loomy.server({ client: {} })
+  assert.equal(hooks.auth.provider, "loomy")
+  assert.equal(hooks.provider.id, "loomy")
+  assert.equal(typeof hooks.config, "function")
+  assert.equal(typeof hooks.auth.loader, "function")
+  assert.equal(typeof hooks.provider.models, "function")
+})
+
 test("the setup registers the integration: the name and the phone-code method", async () => {
   const { ctx, seen } = fakeCtx()
   const cleanup = await loomy.setup(ctx)

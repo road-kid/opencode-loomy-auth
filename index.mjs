@@ -1543,4 +1543,14 @@ async function v2Setup(ctx) {
   }
 }
 
-export default { id: "loomy-auth", setup: v2Setup }
+// server is the third contract, the one the object-entrypoint readers call —
+// magpie's own host among them (its loader answers a default export carrying
+// an id by the server function under it and never reaches the named-export
+// scan). The V1 factory needs no reshaping: the caller hands it the same
+// input the named export took, and the hooks it answers are the V1 hooks.
+// One module, three shapes, the same machinery under each.
+export default {
+  id: "loomy-auth",
+  setup: v2Setup,
+  server: (input) => LoomyAuthPlugin(input),
+}
