@@ -24,22 +24,30 @@
   gateway name with only the leading brand word set to the official
   spelling — no title-casing past that, the version tokens as the
   gateway wrote them.
-- The reasoning efforts hang as variants from each gateway row's own
-  `reasoning_efforts` declaration — the same source the Loomy web client
-  reads its picker from, not a vendor-docs guess. Every thinking row
-  declares the five values none / low / medium / high / xhigh (none turns
-  the thinking off — measured on Kimi, zero thinking; xhigh is the deepest
-  gear, whatever each vendor makes of it upstream), and auto declares none.
-  The picker's own Default variant sends no `reasoningEffort` at all, which
-  lands on the gateway's `default_reasoning_effort` ("low") — the same
-  choice the Loomy client makes, the semantics line up on their own. A
-  model new to the gateway carries its own declaration, no release needed;
-  a row that declares nothing hangs nothing. The built-in snapshot's rows
-  carry no declaration, so they hang the five values measured for their
-  nine thinking ids on 2026-11-04 (the day every thinking row served the
-  same enumeration). The host merges the overlay into the request —
-  `reasoningEffort`, the camelCase field the gateway itself parses (the
-  OpenAI snake_case spelling it never reads).
+- The reasoning efforts hang as variants from each model's real gears:
+  the levels the vendor's own docs vouch for, intersected with the
+  gateway row's `reasoning_efforts` declaration. The gateway serves every
+  thinking row the same five values (none / low / medium / high / xhigh),
+  but the vendors' own pages — read off one by one on 2026-11-04 — say
+  otherwise, and a menu of aliases and ghost gears is a menu of lies:
+  DeepSeek's medium and xhigh are documented aliases of high (its real
+  enumeration is none / low / high / max, and the gateway never declares
+  max); Kimi K2.6 has no `reasoning_effort` at all — thinking runs on
+  `thinking.type`'s two-value switch, and only none's turn-it-off meaning
+  is real (measured through the gateway: none answers with zero thinking,
+  xhigh measurably breaks the same way); Qwen's high is the docs' own
+  alias of xhigh, so the Qwen rows show none / low / medium / xhigh with
+  the gear once; GLM 5.3 Flash thinks whether asked or not — no none,
+  low / high alone; MiMo's xhigh is an alias of high; MiniMax M3 alone
+  takes all five whole; Spark X2.6 knows none / low / high. A model the
+  table doesn't know keeps the gateway's declaration as it stands —
+  Loomy's own contract for vendors we cannot check — and the snapshot's
+  rows (which declare nothing) hang the official levels alone. The
+  picker's own Default variant sends no `reasoningEffort` at all, which
+  lands on the gateway's default gear — each vendor's own default
+  differs, and the gateway's is the one that applies. The host merges the
+  overlay into the request — `reasoningEffort`, the camelCase field the
+  gateway itself parses (the OpenAI snake_case spelling it never reads).
 - The v2 rows ship `time.released: 0`. The desktop picker's visibility
   rule hides a model that has no show record while it is not the newest
   of its family and its release date parses; rows sharing one date with

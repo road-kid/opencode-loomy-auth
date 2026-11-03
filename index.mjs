@@ -1379,26 +1379,78 @@ function v2DisplayName(m) {
   return brand === undefined ? raw : brand + raw.slice(head.length)
 }
 
-// the fallback efforts for the snapshot's thinking ids, keyed by the
-// lowercase id — a measurement, not a vendor-docs guess: on 2026-11-04 the
-// live /api/v1/models served every thinking row the same five-value
-// declaration ["none","low","medium","high","xhigh"] (auto declares none),
-// and the snapshot's rows carry no declaration of their own, so these nine
-// hang what that day measured. The fallback table answers only while the
-// live list couldn't be had — the moment a live row arrives, its own
-// reasoning_efforts declaration (rowModelOf's efforts) takes over, whatever
-// the gateway says by then. An id the table doesn't know (auto included)
-// hangs none.
-const V2_FALLBACK_EFFORTS = {
-  "spark-x2.6": ["none", "low", "medium", "high", "xhigh"],
-  "deepseek-v4.1-flash": ["none", "low", "medium", "high", "xhigh"],
+// the effort levels each vendor itself vouches for, keyed by the lowercase
+// model id — read off the vendors' own doc pages on 2026-11-04, a level at
+// a time, not off the gateway's declaration (which serves every thinking
+// row the same five values, aliases and all). The rule for what makes the
+// table: a level counts only where the vendor spells it as a gear of its
+// own — an alias a vendor documents as silently mapping onto another depth
+// (DeepSeek's medium and xhigh both land on high, Qwen's high is xhigh,
+// MiMo's xhigh lands on high) is that depth wearing a second name, not a
+// gear, and the menu carries no duplicates. Row by row, the source in
+// brackets:
+// — spark-x2.6: none/low/high, the model card's own thinking-budget gears;
+//   no medium, no xhigh [huggingface.co, the Spark-X2.6 card]
+// — spark-x: the same three, an inference drawn from the series rather
+//   than a doc (the id is fallback-only, off the live list already)
+// — deepseek-v4.1-flash: none/low/high — the docs enumerate none/low/high/
+//   max, medium and xhigh are documented aliases of high, and max is a
+//   depth the gateway never declares [api-docs.deepseek.com]
+// — minimax-m3: all five — the Responses schema takes none/low/medium/
+//   high/xhigh whole [platform.minimax.io]
+// — kimi-k2.6: none alone. K2.6 has no reasoning_effort at all (thinking
+//   runs on thinking.type's two-value switch; the three-gear enumeration
+//   belongs to the K3 series), and only none's turn-it-off meaning is real
+//   here: measured through the gateway, none answers with zero thinking,
+//   low and high restate the depth the gateway already runs by default,
+//   and xhigh measurably breaks — zero thinking again
+//   [platform.kimi.com]
+// — qwen-3.8-max and qwen3.8-flash: none/low/medium/xhigh — the native
+//   gears plus none for thinking off; high is the docs' own alias of xhigh
+//   and stays off the menu rather than showing the same gear twice
+//   [help.aliyun.com]
+// — glm-5.3-flash: low/high — the docs enumerate low/high/max, thinking
+//   cannot be turned off at all (no none), medium and xhigh do not exist,
+//   and max is again a depth the gateway never declares
+//   [docs.bigmodel.cn]
+// — mimo-v2.5: none/low/medium/high — the schema takes eight values, but
+//   xhigh/max/ultra are documented aliases of high and minimal maps to low
+//   [mimo.mi.com]
+const V2_LEVELS = {
+  "spark-x2.6": ["none", "low", "high"],
+  "spark-x": ["none", "low", "high"],
+  "deepseek-v4.1-flash": ["none", "low", "high"],
   "minimax-m3": ["none", "low", "medium", "high", "xhigh"],
-  "kimi-k2.6": ["none", "low", "medium", "high", "xhigh"],
-  "qwen-3.8-max": ["none", "low", "medium", "high", "xhigh"],
-  "qwen3.8-flash": ["none", "low", "medium", "high", "xhigh"],
-  "glm-5.3-flash": ["none", "low", "medium", "high", "xhigh"],
-  "mimo-v2.5": ["none", "low", "medium", "high", "xhigh"],
-  "spark-x": ["none", "low", "medium", "high", "xhigh"],
+  "kimi-k2.6": ["none"],
+  "qwen-3.8-max": ["none", "low", "medium", "xhigh"],
+  "qwen3.8-flash": ["none", "low", "medium", "xhigh"],
+  "glm-5.3-flash": ["low", "high"],
+  "mimo-v2.5": ["none", "low", "medium", "high"],
+}
+
+// v2VariantsOf is a row's picker levels as variants, three filters deep.
+// The bone is the official table: an id the table knows keeps only the
+// levels its vendor vouches for — the live row's own reasoning_efforts
+// declaration (rowModelOf's efforts) intersected with the table when one
+// rides the row, the declaration's own order kept; the table itself when
+// none does (a snapshot row declares nothing). An id the table doesn't
+// know (auto included) is a stranger, and a stranger's levels are the
+// gateway's declaration as it stands — Loomy's own contract, not ours to
+// second-guess for a vendor we cannot check; nothing declared and nothing
+// in the table hang nothing. The variant's id is what the picker reads,
+// the body overlay what the host merges into the request JSON —
+// reasoningEffort, the camelCase field the gateway itself parses (the
+// OpenAI snake_case spelling it never reads). The picker's own Default
+// sends no reasoningEffort at all, which is the gateway's default gear —
+// each vendor's own default differs, and the gateway's is the one that
+// actually applies.
+function v2VariantsOf(m) {
+  const official = V2_LEVELS[m.id.toLowerCase()]
+  const declared = m.efforts // the live row's own reasoning_efforts declaration; a snapshot row carries none
+  const levels = official
+    ? (declared ?? official).filter((level) => official.includes(level))
+    : declared ?? []
+  return levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
 }
 
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
@@ -1440,24 +1492,10 @@ function modelV2Of(m, providerID = ID) {
     status: "active",
     enabled: true,
     time: { released: 0 },
-    // the efforts as variants: the row's own reasoning_efforts declaration
-    // first (the same source the Loomy web client reads, so a model new to
-    // the gateway carries its own levels without a release of this plugin),
-    // the fallback measurement for a snapshot id, none for a stranger that
-    // declares none. The id is what the picker reads, the body overlay what
-    // the host merges into the request JSON — key spelled the way the
-    // gateway itself parses it, reasoningEffort, the camelCase field (the
-    // OpenAI snake_case spelling the gateway never reads). "none" turns the
-    // thinking off (measured on Kimi: zero thinking) and "xhigh" is the
-    // deepest gear — the declaration is hung as it stands, whatever each
-    // vendor makes of it upstream. The picker's own Default sends no
-    // reasoningEffort at all, which is the gateway's default_reasoning_effort
-    // ("low") — the same choice the Loomy client makes, the semantics line
-    // up on their own.
-    variants: (m.efforts ?? V2_FALLBACK_EFFORTS[m.id.toLowerCase()] ?? []).map((effort) => ({
-      id: effort,
-      body: { reasoningEffort: effort },
-    })),
+    // the picker's levels as variants: the official table's real gears and
+    // the gateway's own declaration intersected, a stranger's declaration
+    // as it stands — the whole of it spelled out at v2VariantsOf above
+    variants: v2VariantsOf(m),
   }
 }
 

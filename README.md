@@ -72,10 +72,13 @@ falls back to the built-in 2026-10-28 snapshot (chat models only). Bearer
 auth on the gateway calls is injected by the host itself. The rows carry
 the vendors' own display names — a model the name table doesn't know
 keeps its cleaned gateway name with the leading brand word set right —
-and the reasoning efforts each gateway row itself declares
-(`reasoning_efforts`, the same source the Loomy web client reads:
-none / low / medium / high / xhigh, none being thinking off; the picker's
-Default sends no field and the gateway's own low default applies).
+and the reasoning efforts each vendor's own docs vouch for, intersected
+with the gateway row's `reasoning_efforts` declaration (the gateway
+serves every thinking row the same five values, but the vendors' pages
+say otherwise: DeepSeek's medium/xhigh are aliases of high, Qwen's high
+is xhigh, Kimi K2.6 has no effort parameter at all — only none's
+turn-it-off). The picker's Default sends no field and the gateway's own
+default gear applies.
 
 ### What stays magpie-only
 

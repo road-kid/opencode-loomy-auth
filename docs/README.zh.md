@@ -64,10 +64,12 @@ magpie quota                   # 积分卡片
 变化时自动刷新；网关不可达时回落到内置的 2026-10-28 快照（仅聊天
 模型）。网关调用上的 Bearer 认证由宿主自动注入。模型行用各厂商官方
 拼写的展示名（名字表不认识的模型保留清洗后的网关名，仅把开头的
-品牌词纠正为官方拼写），reasoning 档位随网关每行自己的
-`reasoning_efforts` 声明挂载（与 Loomy 网页端同源：
-none / low / medium / high / xhigh 五档，none 即关思考；picker 的
-Default 不发字段，落到网关自己的默认 low）。
+品牌词纠正为官方拼写），reasoning 档位取各厂商官方文档真实枚举与
+网关每行 `reasoning_efforts` 声明的交集（网关给每个思考模型都声明
+同样的五档，但厂商官方页面另有说法：DeepSeek 的 medium/xhigh 是
+high 的别名、Qwen 的 high 是 xhigh 的别名、Kimi K2.6 根本没有
+effort 参数——只有 none 的关思考是真的）。picker 的 Default 不发
+字段，落到网关自己的默认档。
 
 ### magpie 专属的部分
 
