@@ -11,7 +11,9 @@ provider 插件。用 Loomy 的手机验证码登录，对话经 Loomy 的 OpenA
 |---|---|---|
 | `loomy` | 手机验证码（+86） | `loomyad.xunfei.cn`（账号平面 `account.xfinfr.com`） |
 
-本包导出 `LoomyAuthPlugin`（`loomy`）。
+本包导出 `LoomyAuthPlugin`（`loomy`）供 magpie 与 OpenCode v1 读取；从 0.2.0
+起另有面向 OpenCode ≥ 2.x 的默认导出（`{ id: "loomy-auth", setup }`）——
+一个包，两种宿主。
 
 ## 安装
 
@@ -25,8 +27,46 @@ magpie quota                   # 积分卡片
 ```
 
 同一个包也能在 OpenCode 里加载（`opencode.json` 的 `"plugin"` 数组，
-然后 `opencode auth login`）。magpie 把登录态存在 `plugin-auth.json`
+然后 `opencode auth login`）；OpenCode ≥ 2.x 走另一条安装路径——见下文
+[OpenCode v2](#opencode-v2)。magpie 把登录态存在 `plugin-auth.json`
 （mode 600）；OpenCode 存在 `auth.json`。
+
+## OpenCode v2
+
+从 0.2.0 起，本包以默认导出插件（`{ id: "loomy-auth", setup }`）的形态
+在 OpenCode ≥ 2.x 中加载，与 magpie 和 OpenCode v1 读取的命名导出并存。
+同一份代码，同一种登录，同一个网关。
+
+### 安装
+
+三种方式，任选其一：
+
+- `opencode.json(c)` 的 `plugins` 键填 npm 包名：
+  `"plugins": ["@roadkid/opencode-loomy-auth"]`；
+- 同一个键填本地目录：`"plugins": ["E:/path/to/opencode-loomy-auth"]`——
+  路径必须是目录，文件路径会被跳过；
+- 或把目录直接放进 `~/.config/opencode/plugins/`（全局）或
+  `.opencode/plugins/`（项目级）——OpenCode 会自行发现，文件改动热重载。
+
+### 登录
+
+`opencode auth login`（或 TUI 里的 `/connect`）→ 选择 Loomy 集成 →
+手机验证码方式 → 输入 11 位手机号 → 收到短信（6 位验证码，5 分钟有效）→
+输入验证码 → 完成。会话有效期十四天，没有续期——到期重新登录即可。
+桌面版 OpenCode 的账号连接界面用的是同一套服务端 API。
+
+### 模型
+
+登录后 `loomy` provider 自动出现；在那之前它不显示——隐藏正是设计，
+防的就是死模型。模型清单实时读取自网关的 `/api/v1/models`，登录状态
+变化时自动刷新；网关不可达时回落到内置的 2026-10-28 快照（仅聊天
+模型）。网关调用上的 Bearer 认证由宿主自动注入。
+
+### magpie 专属的部分
+
+积分卡片、每日签到与生图模型花名册挂在 magpie 自己的宿主扩展钩子上——
+opencode v2 没有这些表面。v2 侧的插件就是三件事：手机验证码登录、
+实时模型清单、网关对话。
 
 ## 登录
 

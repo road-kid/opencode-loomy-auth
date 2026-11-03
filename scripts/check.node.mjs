@@ -61,6 +61,28 @@ for (const name of atRoot ? [basename(here)] : readdirSync(root)) {
         if (p && (!p.npm || !p.models || !Object.keys(p.models).length)) problems.push(`${fn.name}: config gives ${auth.provider} no npm or models`)
       }
     }
+    // the opencode v2 loader reads none of the above: its plugin is the
+    // default export — an id and a setup — and the setup has to survive a
+    // bare context (every domain it registers against is feature-detected)
+    // and answer the cleanup. The two forms ship together: a package
+    // carrying the v2 default carries its V1 plugin function beside it, and
+    // this repository's package — the one checked here — is required to
+    // carry both, either one alone a broken release.
+    const def = mod.default
+    if (def !== undefined) {
+      if (typeof def?.id !== "string" || !def.id) problems.push("default export: no id")
+      if (typeof def?.setup !== "function") problems.push("default export: no setup")
+      if (!fns.length) problems.push("default export without a plugin function beside it")
+      if (typeof def?.setup === "function") {
+        try {
+          const cleanup = await def.setup({})
+          if (typeof cleanup === "function") await cleanup()
+        } catch (e) {
+          problems.push(`default export: setup failed (${String(e?.message ?? e)})`)
+        }
+      }
+    }
+    if (atRoot && def === undefined) problems.push("exports no default definition (the opencode v2 adapter)")
   } catch (e) {
     problems.push(String(e?.stack ?? e))
   }

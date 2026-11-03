@@ -1293,3 +1293,254 @@ export const _internal = {
   providerModelOf,
   fallbackOf,
 }
+
+// ==== the opencode v2 adapter ======================================================
+
+// OpenCode 2.x loads a plugin by another contract than the named function
+// above: a default export naming an id and a setup, the setup handed the
+// host's own context and returning the function to run at unload. The V1
+// hosts read the named export and never see this default; the v2 host reads
+// the default and ignores the named exports. Both shapes ship in the one
+// file — no @opencode/plugin import (its define() is the identity anyway),
+// so the package keeps its zero dependencies.
+//
+// The v2 side also works differently underneath. There is no per-request
+// fetch to write: the provider record names an integration, and the host
+// itself resolves that integration's active connection into the request's
+// Authorization header before the call goes out — the sign-in gate, the
+// token injection and the streaming are the host's own machinery. What this
+// side registers is the shape of things: the sign-in method under the
+// integration, the provider and its model rows under the provider domain,
+// and a listener on the credential events that re-asks the live model list
+// whenever the account behind it changes.
+//
+// None of it may break the host: every domain is feature-detected (a step's
+// domain missing means the step is skipped, not a failed load), every step
+// is wrapped, and the setup never throws — the worst a half-hearted host
+// gets is the parts of the plugin it has domains for.
+
+const V2_METHOD_ID = "phone-code" // the method's id under the loomy integration
+// the bundled openai-compatible module the host ships — the docs' own
+// spelling of the provider record's package field ("@ai-sdk/openai-compatible"
+// remaps onto the same module)
+const V2_PACKAGE = "@opencode/ai/providers/openai-compatible"
+const V2_RELEASED = Date.parse("2026-10-28T00:00:00Z") // the snapshot's date, stamped on every row
+
+let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
+let v2Disposers = [] // the run's registrations, given up wholesale at cleanup
+
+// modelV2Of is one short model record — a FALLBACK_MODELS row or a
+// parseModels row, the same shape either way — as a v2 Model.Info spells it:
+// the id three times over (the record's, the model's, the provider's), the
+// capability bits under the names the host reads there, the limits, a zero
+// cost — the gateway's rate is a Loomy fact the v2 record has no field for —
+// and the snapshot's date as the release. The rate, free and reasoning bits
+// stay behind: fields the v2 record doesn't know, dropped rather than
+// smuggled in.
+function modelV2Of(m, providerID = ID) {
+  return {
+    id: m.id,
+    modelID: m.id,
+    providerID,
+    name: m.name || m.id,
+    package: V2_PACKAGE,
+    capabilities: {
+      tools: m.toolcall !== false,
+      input: m.vision === true ? ["text", "image"] : ["text"],
+      output: ["text"],
+    },
+    limit: { context: m.context ?? 0, output: m.output ?? 0 },
+    cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+    status: "active",
+    enabled: true,
+    time: { released: V2_RELEASED },
+    variants: [],
+  }
+}
+
+// providerInfoOf is the provider record: the loomy integration behind it and
+// the base URL the host forwards to. Activation "auto" is the sign-in gate
+// itself — the provider is listed only while the integration has an active
+// connection, which is to say only while the account is signed in.
+function providerInfoOf() {
+  return {
+    id: ID,
+    name: "Loomy",
+    activation: "auto", // listed once the sign-in exists, gone when it ends
+    package: V2_PACKAGE,
+    settings: { baseURL: apiBase() },
+    integrationID: ID,
+  }
+}
+
+// v2Models is the model rows the provider carries: the live list while one
+// was had, the snapshot otherwise — the same precedence the V1 models hook
+// keeps, read from the cache instead of at ask-time.
+const v2Models = (providerID = ID) => (v2Live ?? FALLBACK_MODELS).map((m) => modelV2Of(m, providerID))
+
+// v2Transform is the provider domain's registration callback: the editor's
+// get tells a provider already on the books (an earlier run's, or the host's
+// own config) from a fresh one — the first takes the model rows set over it,
+// the second is added whole with its info record.
+function v2Transform(editor) {
+  if (editor?.get?.(ID)) {
+    editor.models?.set?.(ID, v2Models(ID))
+  } else {
+    editor?.add?.({ info: providerInfoOf(), models: v2Models(ID) })
+  }
+}
+
+// v2Method is the phone-code sign-in as an integration method registration.
+// The V1 method's authorize already does the whole flow — validate the
+// phone, send the code, check it — so this is the same machinery in the
+// registration's shape: the form field is the V1 prompt's own words, the
+// authorize's answer is the authz record the host walks (mode "code": show
+// the instructions, take the texted code into the callback), and the
+// callback's success becomes the credential record the host keeps — its
+// five fields, the masked phone and the uid in the metadata. A failed check
+// throws: the host reads a throw out of the callback as the sign-in's
+// failure, the same end the V1 method's authorize throws its own.
+function v2Method() {
+  return {
+    integrationID: ID,
+    method: {
+      id: V2_METHOD_ID,
+      type: "oauth",
+      label: phoneCodeMethod.label,
+      form: [
+        {
+          key: "phone",
+          type: "string",
+          title: phoneCodeMethod.prompts[0].message,
+          required: true,
+          placeholder: phoneCodeMethod.prompts[0].placeholder,
+        },
+      ],
+    },
+    authorize: async (answer) => {
+      const attempt = await phoneCodeMethod.authorize({ phone: answer?.phone == null ? "" : String(answer.phone) })
+      return {
+        url: attempt.url,
+        instructions: attempt.instructions,
+        mode: "code",
+        async callback(code) {
+          const res = await attempt.callback(code)
+          if (res?.type !== "success") throw new Error(res?.error || "登录失败")
+          return {
+            type: "oauth",
+            methodID: V2_METHOD_ID,
+            refresh: res.refresh || "",
+            access: res.access,
+            expires: res.expires,
+            metadata: { accountId: res.accountId, uid: res.uid },
+          }
+        },
+      }
+    },
+  }
+}
+
+// v2Refresh re-asks the live model list and replays the provider transform:
+// read off at setup and again on every credential event, because the rows
+// are the account's own — a fresh sign-in may name models the snapshot never
+// knew. The credential comes from the host's connection domain (the active
+// connection for the loomy integration, resolved), the ask is the same
+// /api/v1/models the V1 hook makes, and any refusal — no connection, no
+// token, a failed ask, an empty answer — falls back to the snapshot by way
+// of a null cache, swallowed whole: a stale model list is never worth a
+// failed load, and a failed ask resets the cache rather than keeping the
+// previous account's rows. The replay is the host's reload (it re-runs the
+// registered transforms against its own editors); a host without one keeps
+// the rows until its next replay. Nothing here throws, whatever the host's
+// domains turn out to be.
+async function v2Refresh(ctx) {
+  let rows = null
+  try {
+    const connection = await ctx?.integration?.connection?.active?.(ID)
+    if (connection) {
+      const credential = await ctx.integration.connection.resolve?.(connection)
+      const access = typeof credential?.access === "string" ? credential.access.trim() : ""
+      if (access) {
+        const payload = await tokenGet("/api/v1/models", access)
+        const parsed = parseModels(payload)
+        if (parsed.length) rows = parsed
+      }
+    }
+  } catch {} // the ask's refusal is the snapshot's turn, never a failed refresh
+  v2Live = rows
+  try {
+    if (typeof ctx?.provider?.reload === "function") await ctx.provider.reload()
+  } catch {}
+}
+
+// v2Setup is the registration itself, in the order the host needs it: the
+// integration (its name and its sign-in method), the provider (info and
+// rows), the credential events (each one a refresh), then the first refresh
+// — an account signed in before this run started gets its live list at
+// once. A repeat setup (a host that loads twice, a test's second context)
+// gives up the previous run's registrations first. The cleanup runs the
+// disposals the registrations answered — a synchronous call each, whatever
+// they return — and the subscription's abort rides among them.
+async function v2Setup(ctx) {
+  for (const dispose of v2Disposers.splice(0)) {
+    try {
+      await dispose()
+    } catch {}
+  }
+  v2Live = null
+  // the integration: the name beside the id, and the sign-in method under it
+  try {
+    if (typeof ctx?.integration?.transform === "function") {
+      const registration = await ctx.integration.transform((editor) => {
+        editor.update?.(ID, (item) => {
+          item.name = "Loomy"
+        })
+        editor.method?.update?.(v2Method())
+      })
+      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+    }
+  } catch {}
+  // the provider: info and rows, added or set over what's there
+  try {
+    if (typeof ctx?.provider?.transform === "function") {
+      const registration = await ctx.provider.transform(v2Transform)
+      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+    }
+  } catch {}
+  // the credential events: a sign-in, a switch, an integration update — each
+  // a fresh live list and a replay. The subscription is awaited before the
+  // walk (a host's subscribe may be an async function answering the iterable,
+  // or a plain one returning it — await reads both the same), the walk is
+  // aborted at cleanup, and an unknown type name is the host's warning, not
+  // an error here.
+  try {
+    if (typeof ctx?.event?.subscribe === "function") {
+      const controller = new AbortController()
+      void (async () => {
+        try {
+          for await (const _event of await ctx.event.subscribe({
+            types: ["credential.updated", "credential.switched", "integration.updated"],
+            signal: controller.signal,
+          })) {
+            await v2Refresh(ctx)
+          }
+        } catch {}
+      })()
+      v2Disposers.push(() => controller.abort())
+    }
+  } catch {}
+  // the first refresh: a signed-in account's live list, without waiting for
+  // an event that may never come
+  try {
+    await v2Refresh(ctx)
+  } catch {}
+  return () => {
+    for (const dispose of v2Disposers.splice(0)) {
+      try {
+        dispose()
+      } catch {}
+    }
+  }
+}
+
+export default { id: "loomy-auth", setup: v2Setup }

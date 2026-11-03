@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 — 2026-11-03
+
+### Added
+
+- One package, two hosts: beside the named `LoomyAuthPlugin` export the
+  magpie and OpenCode v1 hosts read (unchanged), the package now ships a
+  default export shaped `{ id: "loomy-auth", setup }` that OpenCode ≥ 2.x
+  loads. The install stays what it was — `magpie plugin add` or the npm
+  name on the magpie side; on the v2 side the `plugins` key of
+  `opencode.json(c)` (the npm name, or a local directory path — a file
+  path is skipped), or the directory dropped into
+  `~/.config/opencode/plugins/` / `.opencode/plugins/`, discovered on its
+  own and hot-reloaded on file changes.
+- On opencode v2 the sign-in runs through `opencode auth login` (or
+  `/connect` in the TUI): the Loomy integration, the phone-code way, the
+  11-digit phone number, the six-digit SMS code (five minutes to live) —
+  and the session is the same fourteen-day one with nothing to renew.
+  The desktop OpenCode's account-connection screen reads the same server
+  APIs. The model side keeps its shape: the `loomy` provider stays hidden
+  until the sign-in exists (a dead model is what the hiding prevents),
+  the list is read live from the gateway's `/api/v1/models` and refreshes
+  with the sign-in state, and the built-in 2026-10-28 snapshot (chat
+  models only) stands in while the gateway is unreachable. Bearer auth
+  rides the gateway calls by the host's own injection.
+- The points card, the daily check-in and the image-generator roster stay
+  magpie-only: they ride the host-extension hooks magpie exposes, and
+  opencode v2 has no surface for them. There the plugin is the phone-code
+  sign-in, the live model list and the gateway chat.
+
 ## 0.1.7 — 2026-11-02
 
 ### Added

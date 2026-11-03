@@ -12,7 +12,9 @@ daily first-login refresh that renews the grant land on the Usage card.
 |---|---|---|
 | `loomy` | phone code (+86) | `loomyad.xunfei.cn` (account plane `account.xfinfr.com`) |
 
-The package exports `LoomyAuthPlugin` (`loomy`).
+The package exports `LoomyAuthPlugin` (`loomy`) for magpie and OpenCode
+v1, and — from 0.2.0 — a default export (`{ id: "loomy-auth", setup }`)
+for OpenCode ≥ 2.x. One package, both hosts.
 
 ## Install
 
@@ -26,8 +28,53 @@ magpie quota                   # the points card
 ```
 
 The same package loads in OpenCode (the `"plugin"` array in `opencode.json`,
-then `opencode auth login`). magpie keeps the sign-in in `plugin-auth.json`
+then `opencode auth login`) — for OpenCode ≥ 2.x, see
+[OpenCode v2](#opencode-v2). magpie keeps the sign-in in `plugin-auth.json`
 (mode 600); OpenCode keeps it in `auth.json`.
+
+## OpenCode v2
+
+From 0.2.0 the package loads in OpenCode ≥ 2.x as a default-export plugin
+(`{ id: "loomy-auth", setup }`), beside the named export magpie and
+OpenCode v1 read. Same code, same sign-in, same gateway.
+
+### Install
+
+Three ways, pick one:
+
+- the `plugins` key of `opencode.json(c)` with the npm name:
+  `"plugins": ["@roadkid/opencode-loomy-auth"]`;
+- the same key with a local directory:
+  `"plugins": ["E:/path/to/opencode-loomy-auth"]` — the path must be a
+  directory, a file path is skipped;
+- or the directory itself into `~/.config/opencode/plugins/` (global) or
+  `.opencode/plugins/` (project) — OpenCode discovers it on its own and
+  hot-reloads it when files change.
+
+### Sign-in
+
+`opencode auth login` (or `/connect` in the TUI) → pick the Loomy
+integration → the phone-code way → the 11-digit phone number → the SMS
+arrives (six digits, five minutes to live) → type the code → done. The
+session lasts fourteen days and there is no refresh — when it ends, sign
+in again. The desktop OpenCode's account-connection screen reads the same
+server APIs.
+
+### Models
+
+Signed in, the `loomy` provider appears on its own; before that it is
+hidden — the hiding is the design, a dead model is what it prevents. The
+model list is read live from the gateway's `/api/v1/models` and refreshes
+as the sign-in state changes; when the gateway is unreachable the plugin
+falls back to the built-in 2026-10-28 snapshot (chat models only). Bearer
+auth on the gateway calls is injected by the host itself.
+
+### What stays magpie-only
+
+The points card, the daily check-in and the image-generator roster ride
+magpie's own host-extension hooks — opencode v2 has no surface for them.
+There the plugin is three things: the phone-code sign-in, the live model
+list, and the gateway chat.
 
 ## Signing in
 
