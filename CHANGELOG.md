@@ -17,6 +17,13 @@
   path is skipped), or the directory dropped into
   `~/.config/opencode/plugins/` / `.opencode/plugins/`, discovered on its
   own and hot-reloaded on file changes.
+- On opencode v2 every model hangs the three reasoning efforts
+  (low / medium / high) as variants, the picker reading the ids and the
+  host merging the overlay into the request — `reasoningEffort`, the
+  camelCase field the gateway itself parses (measured live: the low
+  setting ends the thinking early; the OpenAI snake_case spelling it
+  never reads). The gateway ignores the field on the models that don't
+  think, so every model carries the levels, as the V1 table always did.
 - On opencode v2 the sign-in runs through `opencode auth login` (or
   `/connect` in the TUI): the Loomy integration, the phone-code way, the
   11-digit phone number, the six-digit SMS code (five minutes to live) —

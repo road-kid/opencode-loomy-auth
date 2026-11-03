@@ -142,7 +142,13 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     assert.equal(deepseek.status, "active")
     assert.equal(deepseek.enabled, true)
     assert.equal(typeof deepseek.time.released, "number")
-    assert.deepEqual(deepseek.variants, [])
+    // the reasoning efforts ride as variants: the body overlay the host
+    // merges into the request, the gateway's own camelCase spelling
+    assert.deepEqual(deepseek.variants, [
+      { id: "low", body: { reasoningEffort: "low" } },
+      { id: "medium", body: { reasoningEffort: "medium" } },
+      { id: "high", body: { reasoningEffort: "high" } },
+    ])
     assert.equal(deepseek.rate, undefined) // the v2 record has no field for it
     assert.equal(deepseek.free, undefined)
     cleanup()

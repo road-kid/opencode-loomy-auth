@@ -1326,6 +1326,19 @@ const V2_METHOD_ID = "phone-code" // the method's id under the loomy integration
 const V2_PACKAGE = "@opencode/ai/providers/openai-compatible"
 const V2_RELEASED = Date.parse("2026-10-28T00:00:00Z") // the snapshot's date, stamped on every row
 
+// the reasoning efforts as variants: the id the picker reads and the body
+// overlay the host merges into the request JSON, key spelled the way the
+// gateway itself parses it — reasoningEffort, the camelCase field (measured
+// live: the low setting ends the thinking early, the OpenAI snake_case
+// spelling the gateway never reads). Every model hangs the levels, the
+// plain ones included, the gateway ignoring the field where it doesn't
+// apply — the same reason the V1 table did.
+const V2_VARIANTS = [
+  { id: "low", body: { reasoningEffort: "low" } },
+  { id: "medium", body: { reasoningEffort: "medium" } },
+  { id: "high", body: { reasoningEffort: "high" } },
+]
+
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
 let v2Disposers = [] // the run's registrations, given up wholesale at cleanup
 
@@ -1354,7 +1367,7 @@ function modelV2Of(m, providerID = ID) {
     status: "active",
     enabled: true,
     time: { released: V2_RELEASED },
-    variants: [],
+    variants: V2_VARIANTS,
   }
 }
 
