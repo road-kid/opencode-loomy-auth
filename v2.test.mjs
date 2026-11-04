@@ -980,6 +980,67 @@ test("the desktop panel's rpc handlers: the status off the records call, the che
   }
 })
 
+// the rpc's output encoder takes JSON values only — an own key holding
+// undefined is refused ("Expected JSON value at [\"error\"]"), the 500 the
+// panel met before the absent fields went absent. Every answer the two
+// handlers give must survive the round-trip JSON makes: absent stays
+// absent, present stays present, nothing lost.
+const assertJsonOnly = (value, label) => {
+  const walk = (v, path) => {
+    assert.notEqual(v, undefined, `${label}: undefined at ${path || "the root"}`)
+    if (Array.isArray(v)) {
+      v.forEach((item, i) => walk(item, `${path}[${i}]`))
+      return
+    }
+    if (v && typeof v === "object") {
+      for (const [key, item] of Object.entries(v)) walk(item, `${path}.${key}`)
+    }
+  }
+  walk(value, "")
+  assert.deepEqual(JSON.parse(JSON.stringify(value)), value, `${label}: the JSON round-trip loses nothing`)
+}
+
+test("the desktop panel's rpc handlers: every answer is plain JSON, the optional field absent rather than undefined", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    // no connection: the signed-out status and the claimless check-in
+    const { ctx: signedOut } = fakeCtx()
+    assertJsonOnly(await _internal.v2QuotaStatus(signedOut), "signed-out status")
+    assertJsonOnly(await _internal.v2QuotaCheckin(signedOut), "claimless check-in")
+    // a dead sign-in: the expired status, the error key absent, not undefined
+    up.route("GET /api/v2/points/records", () => json({ code: "020002", message: "登录失效" }))
+    const { ctx: withConn } = fakeCtx(connection)
+    const expired = await _internal.v2QuotaStatus(withConn)
+    assert.equal(expired.expired, true)
+    assert.equal(Object.hasOwn(expired, "error"), false, "the error key is absent, not undefined")
+    assertJsonOnly(expired, "expired status")
+    // a business refusal: the error is a string beside the state
+    up.route("GET /api/v2/points/records", () => json({ code: "100001", desc: "上游拒绝" }))
+    const failed = await _internal.v2QuotaStatus(withConn)
+    assert.equal(typeof failed.error, "string")
+    assertJsonOnly(failed, "failed status")
+    // the signed-in readout and the claim: the card, the message
+    up.route("GET /api/v2/points/records", () =>
+      json({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011, dailyQuota: 5000 } } })
+    )
+    up.route("POST /api/v1/points/first-login", () =>
+      json({ code: "000000", data: { data: { dailyQuota: 5000, dailyConsumed: 1989, dailyBalance: 3011, dailyCycleDate: "2999-01-01" } } })
+    )
+    const status = await _internal.v2QuotaStatus(withConn)
+    assert.ok(status.card, "the card rides")
+    assertJsonOnly(status, "signed-in status")
+    assertJsonOnly(await _internal.v2QuotaCheckin(withConn), "the claim")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
 test("the desktop panel's rpc handlers: no connection reads signed out, a dead sign-in reads expired, both as data", async () => {
   const up = await fakeLoomy()
   const restore = pointAt(up.origin)

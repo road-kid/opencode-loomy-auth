@@ -1296,6 +1296,11 @@ const V2_RPC = {
 // it all. Every step is feature-detected and wrapped: a host without the
 // domain, a connection with no token, a dead sign-in, a bad answer — each is
 // a state the method answers, never a throw.
+//
+// The answer crosses the rpc's output encoder, which refuses a key holding
+// undefined ("Expected JSON value at [\"error\"]") — an absent field must be
+// absent, not present as undefined. So the optional keys are left out when
+// they carry no value.
 async function v2QuotaStatus(ctx) {
   let access = ""
   let accountId = ""
@@ -1314,7 +1319,7 @@ async function v2QuotaStatus(ctx) {
           : undefined
     }
   } catch {} // a refused domain reads as signed out; the read never throws
-  if (!access) return { signedIn: false, expired: false, accountId, error: undefined }
+  if (!access) return { signedIn: false, expired: false, accountId }
   // the renewal's storage note: the same defensive read the domain above
   // keeps — a missing domain, a throwing one, an unreadable value all
   // answer nothing, and the sources behind it go on
@@ -1332,16 +1337,16 @@ async function v2QuotaStatus(ctx) {
     const code = businessCode(payload)
     // the sign-in's end is the records answer's own verdict or the gateway's
     // own 401/403 (the throw's marker below) — the V1 hook's same two reads
-    if (AUTH_CODES.has(code)) return { signedIn: false, expired: true, accountId, error: undefined }
+    if (AUTH_CODES.has(code)) return { signedIn: false, expired: true, accountId }
     if (code !== SUCCESS) {
       const text = upstreamMessage(payload)
       const w = wordsOf()
       return { signedIn: true, expired: false, accountId, error: text ? w.pointsFailed(text) : w.pointsFailedCode(code) }
     }
     if (noted === undefined) noted = await quotaNoteOf(accountId)
-    return { signedIn: true, expired: false, accountId, error: undefined, card: usageOf(payload, noted, cycle) }
+    return { signedIn: true, expired: false, accountId, card: usageOf(payload, noted, cycle) }
   } catch (e) {
-    if (e?.signIn === "expired") return { signedIn: false, expired: true, accountId, error: undefined }
+    if (e?.signIn === "expired") return { signedIn: false, expired: true, accountId }
     return { signedIn: true, expired: false, accountId, error: e?.message ?? String(e) }
   }
 }

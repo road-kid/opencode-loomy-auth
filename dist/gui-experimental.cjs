@@ -153,9 +153,10 @@ function setup(ctx) {
   ctx.add(gui.Panel, {
     id: "quota",
     region: "side",
-    // the one tab, its title the panel's own words — the getter form the
-    // host re-reads as its surroundings change
-    list: () => [{ id: "quota", title: () => W.title }],
+    // the one tab, its title the panel's own words — a plain string, not an
+    // accessor: the host writes the title into the closed-tab record, and
+    // that record's schema holds strings only
+    list: () => [{ id: "quota", title: W.title }],
     // the panel's body: one readout column and the two actions under it.
     // The reactive bits are created here, in the render — the host's own
     // owner around them — so the readout re-renders as the reads settle and
@@ -230,6 +231,39 @@ function setup(ctx) {
       return root
     },
   })
+
+  // The side pane's add-tab menu is built from menu-item registrations, not
+  // from panels: a panel alone is reachable by code but never listed. This
+  // entry gives the panel its launcher line; run opens the panel's own tab
+  // for the session on screen — the active tab's own first (a window with
+  // several session tabs still reads the one in view), then the routed
+  // session, then the lone session of a single-tab window. opened follows
+  // the host's own launcher rule, the built-in review plugin's same read:
+  // while the tab is already showing, the row steps out of the add-tab
+  // list. Every read is feature-detected because the GUI plugin API is
+  // experimental and older hosts may not carry layout or tabs.
+  if (gui.MenuItem && typeof ctx.layout?.open === "function") {
+    const sessionOf = () => {
+      const active = (ctx.tabs?.list?.() ?? []).find((tab) => tab.active)?.session
+      return active ?? ctx.sessions?.current?.() ?? (ctx.sessions?.list?.().length === 1 ? ctx.sessions.list()[0] : undefined)
+    }
+    ctx.add(gui.MenuItem, () => {
+      const session = sessionOf()
+      const state = session && typeof ctx.layout?.state === "function" ? ctx.layout.state("loomy-auth:quota", session) : "closed"
+      return {
+        menu: "session.panel",
+        id: "quota",
+        title: W.title,
+        icon: "status",
+        order: 50,
+        opened: state !== "closed",
+        run() {
+          const onScreen = sessionOf()
+          if (onScreen) ctx.layout.open("loomy-auth:quota", onScreen, { tab: "select" })
+        },
+      }
+    })
+  }
 }
 
 module.exports = {
