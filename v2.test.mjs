@@ -14,9 +14,16 @@ import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createRequire } from "node:module"
 import loomy, { LoomyAuthPlugin, _internal } from "./index.mjs"
 import tui from "./tui.mjs"
 import { fakeLoomy, json, pointAt } from "./fake.mjs"
+
+// the desktop panel's bundle, read the way Node reads a .cjs — its top
+// level is definitions alone (no require runs before a setup's), so the
+// file loads clean here and its pure surface is the tests' to hold
+const require = createRequire(import.meta.url)
+const guiBundle = require("./dist/gui-experimental.cjs")
 
 // the panel's note read goes through the same file the V1 card's does —
 // pointed at a scratch file so the run reads nothing a real checkout left
@@ -835,6 +842,170 @@ test("the panel without a connection opens showing the signed-out row and asks n
     assert.ok(seen.opens[0][1].options.some((o) => o.title === "刷新"), "the panel still opens on its refresh action")
     assert.equal(up.seen.length, 0, "no ask went anywhere")
     assert.equal(seen.opens.length, 1, "the immediate Esc closed the loop")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+// ---- the desktop panel -----------------------------------------------------------------
+//
+// The ./gui-experimental bundle is a hand-written CommonJS file the desktop
+// app loads into its windows (the recon's reading of the host's loader: the
+// code evaluated as text, the app's own require beside it, the default
+// export's setup the only thing that runs). What a window runs — DOM under
+// Solid — a Node test cannot; what the bundle carries besides it, the
+// tests hold here: the contract literal beside the server's, the Beijing
+// formatting, the readout-to-rows read, and the load itself (a bare context
+// answers nothing, no throw — the requires sit inside setup, so the
+// require-free top level is what lets this file load in Node at all).
+
+test("the desktop panel's bundle: a CommonJS module that loads in Node, its default a bare setup", () => {
+  assert.equal(typeof guiBundle.default.setup, "function", "the default export's setup is what the loader validates")
+  assert.equal(guiBundle.default.setup({}), undefined, "no Solid, no gui module, no add domain — a silent load, no throw")
+  assert.equal(typeof guiBundle.beijingTimeOf, "function")
+  assert.equal(typeof guiBundle.rowsOf, "function")
+})
+
+test("the desktop panel's bundle carries the server rpc's contract, letter for letter", () => {
+  assert.deepEqual(guiBundle.CONTRACT, _internal.V2_RPC, "the two literals agree — the wire's id and methods cannot drift")
+  assert.equal(guiBundle.CONTRACT.id, "loomy-auth-quota")
+  assert.deepEqual(Object.keys(guiBundle.CONTRACT.methods).sort(), ["checkin", "status"])
+})
+
+test("the desktop panel's formatting: beijingTimeOf renders the reset moment as Beijing's MM-DD HH:mm", () => {
+  assert.equal(guiBundle.beijingTimeOf("2999-01-01T16:00:00.000Z"), "01-02 00:00", "the same 8-hour shift the cycle arithmetic keeps")
+  assert.equal(guiBundle.beijingTimeOf("2999-06-15T12:30:00.000Z"), "06-15 20:30")
+  assert.equal(guiBundle.beijingTimeOf("not a moment"), undefined)
+  assert.equal(guiBundle.beijingTimeOf(undefined), undefined)
+})
+
+test("the desktop panel's rows: one status readout to the words the panel shows, every state a column", () => {
+  // no readout at all, a read in flight
+  assert.deepEqual(guiBundle.rowsOf(undefined), [{ key: "state", text: "登录状态：未登录（用 /connect 或 opencode auth login 登录）" }])
+  assert.equal(guiBundle.rowsOf({ loading: true })[0].text, "正在读取…")
+  // a refused ask: one failed row, worded
+  assert.deepEqual(guiBundle.rowsOf({ failed: "Failed to fetch" }), [{ key: "state", text: "读取失败：Failed to fetch" }])
+  // signed out, and the dead sign-in's row
+  assert.equal(guiBundle.rowsOf({ signedIn: false, expired: false }).length, 1)
+  assert.ok(guiBundle.rowsOf({ signedIn: false, expired: true })[0].text.includes("已过期"), "the expired row")
+  // a full readout: state, total, daily, reset — the TUI panel's rows in a column
+  const rows = guiBundle.rowsOf({
+    signedIn: true,
+    expired: false,
+    accountId: "138****8000",
+    card: {
+      balance: "11011 积分",
+      windows: [{ display: "3011 / 5000 积分", resetsAt: "2999-01-01T16:00:00.000Z" }],
+    },
+  })
+  assert.deepEqual(
+    rows.map((r) => r.text),
+    ["登录状态：已登录（138****8000）", "积分总额：11011 积分", "每日赠送：3011 / 5000 积分", "北京时间 01-02 00:00 重置"]
+  )
+  // an unparseable reset moment reads as no reset row, never a wrong one
+  const noReset = guiBundle.rowsOf({
+    signedIn: true,
+    expired: false,
+    card: { balance: "1 积分", windows: [{ display: "0 积分", resetsAt: "not a moment" }] },
+  })
+  assert.ok(!noReset.some((r) => r.key === "reset"), "no reset row without a parseable moment")
+  // a bad answer rides beside the state
+  const withError = guiBundle.rowsOf({ signedIn: true, expired: false, error: "积分查询失败（上游 code=9）" })
+  assert.equal(withError[0].key, "state")
+  assert.equal(withError[1].key, "error")
+  assert.equal(withError[1].text, "积分查询失败（上游 code=9）")
+})
+
+test("the setup registers the desktop panel's rpc: the contract and the two methods, given up at cleanup", async () => {
+  const { ctx, seen } = fakeCtx()
+  let registered
+  ctx.rpc = {
+    register: async (def, handlers) => {
+      registered = { def, handlers }
+      return { dispose: () => seen.disposals.push("rpc") }
+    },
+  }
+  const cleanup = await loomy.setup(ctx)
+  assert.ok(registered, "the registration went in")
+  assert.deepEqual(registered.def, _internal.V2_RPC, "the contract as the server side spells it")
+  assert.equal(typeof registered.handlers.status, "function")
+  assert.equal(typeof registered.handlers.checkin, "function")
+  const nobody = await registered.handlers.status({})
+  assert.equal(nobody.signedIn, false, "no connection, no readout — answered as data, not a throw")
+  assert.equal(nobody.expired, false)
+  await cleanup()
+  assert.ok(seen.disposals.includes("rpc"), "the registration's disposal rides among the cleanups")
+})
+
+test("the desktop panel's rpc handlers: the status off the records call, the check-in off first-login, the size noted behind it", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // the records answer the real upstream ships, the size riding with it
+    // here — the usageOf read's own floor; the first-login answer carries
+    // the same size, the claim's arithmetic in full
+    up.route("GET /api/v2/points/records", () =>
+      json({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011, dailyQuota: 5000 } } })
+    )
+    up.route("POST /api/v1/points/first-login", () =>
+      json({ code: "000000", data: { data: { dailyQuota: 5000, dailyConsumed: 1989, dailyBalance: 3011, dailyCycleDate: "2999-01-01" } } })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    const { ctx, storage } = fakeCtx(connection)
+    const status = await _internal.v2QuotaStatus(ctx)
+    assert.equal(status.signedIn, true)
+    assert.equal(status.expired, false)
+    assert.equal(status.accountId, "138****8000")
+    assert.equal(status.card.balance, "11011 积分") // 8000 permanent + the grant's remaining
+    assert.equal(status.card.windows[0].display, "3011 / 5000 积分")
+    assert.ok(Date.parse(status.card.windows[0].resetsAt) > Date.now(), "the reset moment ahead")
+    const claim = await _internal.v2QuotaCheckin(ctx)
+    assert.equal(claim.outcome, "claimed")
+    assert.ok(claim.message.includes("每日赠送积分已刷新"), "the claim's own wording")
+    assert.deepEqual(storage.get("loomy-auth/quota-size"), { dailyQuota: 5000, dailyCycleDate: "2999-01-01" }, "the size noted behind the claim")
+    const asks = up.seen.filter((r) => r.method === "POST" && r.path === "/api/v1/points/first-login")
+    assert.equal(asks.length, 1, "one first-login ask")
+    assert.deepEqual(asks[0].json, {})
+    const reads = up.seen.filter((r) => r.method === "GET" && r.path === "/api/v2/points/records")
+    assert.equal(reads.length, 1)
+    assert.equal(reads[0].headers.authorization, "Bearer tok")
+    assert.equal(reads[0].headers.token, "tok")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the desktop panel's rpc handlers: no connection reads signed out, a dead sign-in reads expired, both as data", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // the records answer's own verdict of a dead sign-in — the business
+    // code, not an HTTP refusal, so the read answers expired as data
+    up.route("GET /api/v2/points/records", () => json({ code: "020002", message: "登录失效" }))
+    const { ctx } = fakeCtx()
+    const nobody = await _internal.v2QuotaStatus(ctx)
+    assert.equal(nobody.signedIn, false)
+    assert.equal(nobody.expired, false)
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    const { ctx: withConn } = fakeCtx(connection)
+    const dead = await _internal.v2QuotaStatus(withConn)
+    assert.equal(dead.signedIn, false, "the dead sign-in reads as signed out")
+    assert.equal(dead.expired, true, "with the expired marker")
+    // the claim without a connection: the expired wording, as data
+    const { ctx: claimless } = fakeCtx(undefined)
+    const claim = await _internal.v2QuotaCheckin(claimless)
+    assert.equal(claim.outcome, "failed")
+    assert.ok(claim.message.includes("登录态已失效"), "the expired wording")
+    assert.equal(up.seen.length, 1, "the only ask was the dead read's own records call")
+    assert.equal(up.seen.filter((r) => r.method === "POST" && r.path === "/api/v1/points/first-login").length, 0, "the claimless ask never went out")
   } finally {
     await up.close()
     restore()

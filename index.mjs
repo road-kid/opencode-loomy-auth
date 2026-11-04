@@ -1258,6 +1258,128 @@ export const LoomyAuthPlugin = async (input) => {
 // const does not hoist the way the function declarations around it do
 const V2_QUOTA_KEY = "loomy-auth/quota-size"
 
+// ---- the desktop panel's rpc, the GUI's one channel to the numbers ---------------
+// The desktop OpenCode ships the package's ./gui-experimental bundle into its
+// windows, and a window reads its numbers only through the app's own client —
+// the renderer never holds the gateway's credential, and a GUI asking the
+// gateway on its own would ride a CORS allowance that is the desktop's own
+// undocumented doing, not a surface anyone promises. So the numbers cross one
+// bridge: an RPC the server part registers in v2Setup, on the v2 host's rpc
+// domain (feature-detected, the way every domain there is — a host without
+// one loads the plugin whole and gives the GUI no channel), whose two methods
+// run the very machinery the TUI panel runs. The bundle carries its own copy
+// of the contract literal (pure JSON Schema, a dependency of neither side);
+// the tests read both copies and hold them together.
+//
+// The contract: two methods, no events, the schemas loose (type: object —
+// these payloads are the panel's readouts, not a public surface anyone else
+// validates). No rpc.* error names declared, none of the framework's
+// reserved ones: a handler answers its refusals as data, states the panel
+// renders, the way the TUI panel's snapshot keeps — never a throw the wire
+// would word as an internal error. The const sits here, beside the storage
+// key above it, for the same reason that one does: the _internal face below
+// hands it to the tests, and a const does not hoist.
+const V2_RPC = {
+  id: "loomy-auth-quota",
+  methods: {
+    status: { input: { type: "object" }, output: { type: "object" } },
+    checkin: { input: { type: "object" }, output: { type: "object" } },
+  },
+  events: {},
+}
+
+// v2QuotaStatus is the panel's one read — the TUI panel's snapshot in the
+// rpc's own shape: the credential out of the connection domain (the same
+// reading v2Refresh makes — the token, the masked phone, the grant's fields
+// when a magpie-side check-in wrote them), the renewal's storage note behind
+// it, the file note behind that, and the records call through usageOf over
+// it all. Every step is feature-detected and wrapped: a host without the
+// domain, a connection with no token, a dead sign-in, a bad answer — each is
+// a state the method answers, never a throw.
+async function v2QuotaStatus(ctx) {
+  let access = ""
+  let accountId = ""
+  let noted
+  let cycle
+  try {
+    const connection = await ctx?.integration?.connection?.active?.(ID)
+    if (connection) {
+      const credential = await ctx.integration.connection.resolve?.(connection)
+      access = typeof credential?.access === "string" ? credential.access.trim() : ""
+      accountId = typeof credential?.metadata?.accountId === "string" ? credential.metadata.accountId.trim() : ""
+      noted = pickNumber(credential?.metadata?.dailyQuota)
+      cycle =
+        typeof credential?.metadata?.dailyCycleDate === "string" && credential.metadata.dailyCycleDate.trim()
+          ? credential.metadata.dailyCycleDate.trim()
+          : undefined
+    }
+  } catch {} // a refused domain reads as signed out; the read never throws
+  if (!access) return { signedIn: false, expired: false, accountId, error: undefined }
+  // the renewal's storage note: the same defensive read the domain above
+  // keeps — a missing domain, a throwing one, an unreadable value all
+  // answer nothing, and the sources behind it go on
+  if (noted === undefined || cycle === undefined) {
+    try {
+      const size = await ctx?.storage?.get?.(V2_QUOTA_KEY)
+      if (noted === undefined) noted = pickNumber(size?.dailyQuota)
+      if (cycle === undefined) {
+        cycle = typeof size?.dailyCycleDate === "string" && size.dailyCycleDate.trim() ? size.dailyCycleDate.trim() : undefined
+      }
+    } catch {}
+  }
+  try {
+    const payload = await tokenGet(RECORDS_PATH, access)
+    const code = businessCode(payload)
+    // the sign-in's end is the records answer's own verdict or the gateway's
+    // own 401/403 (the throw's marker below) — the V1 hook's same two reads
+    if (AUTH_CODES.has(code)) return { signedIn: false, expired: true, accountId, error: undefined }
+    if (code !== SUCCESS) {
+      const text = upstreamMessage(payload)
+      const w = wordsOf()
+      return { signedIn: true, expired: false, accountId, error: text ? w.pointsFailed(text) : w.pointsFailedCode(code) }
+    }
+    if (noted === undefined) noted = await quotaNoteOf(accountId)
+    return { signedIn: true, expired: false, accountId, error: undefined, card: usageOf(payload, noted, cycle) }
+  } catch (e) {
+    if (e?.signIn === "expired") return { signedIn: false, expired: true, accountId, error: undefined }
+    return { signedIn: true, expired: false, accountId, error: e?.message ?? String(e) }
+  }
+}
+
+// v2QuotaCheckin is the panel's check-in: the same first-login call the TUI
+// panel's action makes, worded by the same checkinOf, its failures worded
+// the same way the TUI's catch words them. Behind the claim — best-effort,
+// never a word about a refusal among it — the grant's size is noted into the
+// host's storage the way the renewal notes it, so the refreshed read that
+// follows the check-in shows the share at once.
+async function v2QuotaCheckin(ctx) {
+  let access = ""
+  try {
+    const connection = await ctx?.integration?.connection?.active?.(ID)
+    if (connection) {
+      const credential = await ctx.integration.connection.resolve?.(connection)
+      access = typeof credential?.access === "string" ? credential.access.trim() : ""
+    }
+  } catch {} // a refused domain reads as signed out; the claim never throws
+  if (!access) return { outcome: "failed", message: wordsOf().signInExpired }
+  try {
+    const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
+    try {
+      const quota = pickNumber(pointsFloor(payload)?.dailyQuota)
+      const cycleDate = cycleDateOf(payload)
+      if (quota !== undefined || cycleDate !== undefined) {
+        const size = { ...(quota !== undefined ? { dailyQuota: quota } : {}), ...(cycleDate !== undefined ? { dailyCycleDate: cycleDate } : {}) }
+        await ctx?.storage?.set?.(V2_QUOTA_KEY, size)
+      }
+    } catch {}
+    return checkinOf(payload)
+  } catch (e) {
+    return e?.signIn === "expired"
+      ? { outcome: "failed", message: wordsOf().signInExpired }
+      : { outcome: "failed", message: e?.message ?? String(e) }
+  }
+}
+
 // for tests
 export const _internal = {
   FALLBACK_MODELS,
@@ -1309,6 +1431,13 @@ export const _internal = {
   fallbackOf,
   v2BeijingDay,
   v2Renew,
+  // the desktop panel's rpc: the contract literal (the bundle carries its
+  // own copy; the tests hold the two together) and the two methods the
+  // registration wraps — the panel's read and the panel's claim, the same
+  // machinery the TUI panel runs
+  V2_RPC,
+  v2QuotaStatus,
+  v2QuotaCheckin,
   // the four constants the TUI panel reads beside the functions above: the
   // same literals the hooks use, exported so the panel's numbers and its
   // check-in travel the exact paths the server side does (a named export
@@ -1730,6 +1859,17 @@ async function v2Setup(ctx) {
   try {
     if (typeof ctx?.provider?.transform === "function") {
       const registration = await ctx.provider.transform(v2Transform)
+      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+    }
+  } catch {}
+  // the desktop panel's rpc: the two methods above, the GUI's one channel —
+  // a host without the rpc domain skips it, the plugin whole regardless
+  try {
+    if (typeof ctx?.rpc?.register === "function") {
+      const registration = await ctx.rpc.register(V2_RPC, {
+        status: () => v2QuotaStatus(ctx),
+        checkin: () => v2QuotaCheckin(ctx),
+      })
       if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
     }
   } catch {}

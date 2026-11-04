@@ -6,11 +6,13 @@
   "main": "./index.mjs",
   "exports": {
     ".": "./index.mjs",
-    "./tui": "./tui.mjs"
+    "./tui": "./tui.mjs",
+    "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "files": [
     "index.mjs",
     "tui.mjs",
+    "dist/gui-experimental.cjs",
     "README.md",
     "CHANGELOG.md",
     "docs/README.zh.md"

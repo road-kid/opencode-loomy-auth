@@ -83,6 +83,30 @@
   now exports `./tui` (the key the v2 host reads to compute `features.tui`;
   magpie's loader, whose entry list never leaves the four sources it has
   always read, does not touch it) and ships `tui.mjs` in `files`.
+- On opencode v2 the desktop app carries the same panel in its own window:
+  the package now exports `./gui-experimental` → `dist/gui-experimental.cjs`
+  — the prebuilt CommonJS bundle the desktop's GUI plugin loader reads
+  (magpie's loader, whose entry list never leaves the four sources it has
+  always read, does not touch this key either) — with the same rows the TUI
+  panel shows (sign-in state, points total, the daily grant's remaining over
+  its size and its Beijing-time reset) and the same two actions beside them.
+  The bundle is hand-written CommonJS, no build step: the app supplies the
+  modules it requires at runtime (`solid-js`, the gui module with the
+  registries), and the rows are DOM built by hand with Solid's own
+  primitives, no JSX to compile. The numbers cross one bridge: the RPC the
+  server part registers in `v2Setup` (`loomy-auth-quota`, two methods —
+  `status`, the records call through `usageOf` off the credential the
+  connection domain holds; `checkin`, the same first-login call worded by
+  the same claim reader, the grant's size noted behind it the way the
+  renewal notes it) — the window calls it through the app's own client
+  (`ctx.client.rpc`), never touching the gateway's credential, which only
+  the server side holds. The contract travels as a pure JSON-Schema
+  literal, the bundle's copy beside the server's, the tests holding the two
+  together; the bundle's own words, its Beijing-time formatting and its
+  readout-to-rows read are tested in Node (a `.cjs` requires clean), while
+  the render itself — DOM in a window — is not. The GUI API is
+  experimental upstream (the `-experimental` export name says so) and may
+  change between desktop releases.
 - On opencode v2 the day's first-login renewal runs by itself: at load, behind
   every credential event and on a half-hour timer, the same once-a-day claim
   magpie's Daily check-in makes — its success marked per Beijing calendar
@@ -92,9 +116,10 @@
   cleanup's disposers.
 - The points card, the daily check-in and the image-generator roster stay
   magpie-only: they ride the host-extension hooks magpie exposes. The
-  `/loomy` panel (above) brings the points' numbers to the v2 TUI itself;
-  the rest of the plugin there is the phone-code sign-in, the live model
-  list and the gateway chat.
+  `/loomy` panel (above) brings the points' numbers to the v2 TUI itself,
+  and the desktop panel beside it brings them to the v2 desktop's own
+  windows; the rest of the plugin there is the phone-code sign-in, the live
+  model list and the gateway chat.
 
 ## 0.1.7 — 2026-11-02
 

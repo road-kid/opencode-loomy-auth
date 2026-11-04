@@ -90,7 +90,11 @@ worded the same way) and **refresh** beside them. The day's renewal also
 runs by itself: at load, behind every credential event and on a half-hour
 timer, the same once-a-day claim goes out silently — a success is marked
 per Beijing day, a failure just waits for the next event or tick to ask
-again.
+again. The desktop OpenCode carries the same panel in its own windows —
+entry is the desktop's side-panel launcher, through the package's
+`./gui-experimental` bundle — and that export name is the upstream's own
+admission: the GUI plugin API is experimental and may change between
+desktop releases.
 
 ### What stays magpie-only
 
