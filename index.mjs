@@ -1253,6 +1253,11 @@ export const LoomyAuthPlugin = async (input) => {
   }
 }
 
+// the storage key the v2 renewal notes the grant's size under — declared
+// here, above the _internal face that hands it to the panel, because a
+// const does not hoist the way the function declarations around it do
+const V2_QUOTA_KEY = "loomy-auth/quota-size"
+
 // for tests
 export const _internal = {
   FALLBACK_MODELS,
@@ -1302,6 +1307,18 @@ export const _internal = {
   configModelOf,
   providerModelOf,
   fallbackOf,
+  v2BeijingDay,
+  v2Renew,
+  // the four constants the TUI panel reads beside the functions above: the
+  // same literals the hooks use, exported so the panel's numbers and its
+  // check-in travel the exact paths the server side does (a named export
+  // neither host's loader touches — magpie's short-circuits on the default,
+  // the v2 one reads the default alone)
+  SUCCESS,
+  AUTH_CODES,
+  RECORDS_PATH,
+  FIRST_LOGIN_PATH,
+  V2_QUOTA_KEY, // the storage key the renewal noted the grant's size under — the panel's second source for it
 }
 
 // ==== the opencode v2 adapter ======================================================
@@ -1322,7 +1339,8 @@ export const _internal = {
 // side registers is the shape of things: the sign-in method under the
 // integration, the provider and its model rows under the provider domain,
 // and a listener on the credential events that re-asks the live model list
-// whenever the account behind it changes.
+// whenever the account behind it changes — the day's first-login renewal
+// riding silently behind the same events, a half-hour timer between them.
 //
 // None of it may break the host: every domain is feature-detected (a step's
 // domain missing means the step is skipped, not a failed load), every step
@@ -1581,6 +1599,70 @@ function v2Method() {
   }
 }
 
+// v2BeijingDay is the Beijing calendar day a moment falls in — the day
+// Loomy's own grant cycles turn on (the V1 card's arithmetic keeps the
+// same 8-hour shift at BEIJING_OFFSET_MS), so the renewal's once-a-day
+// mark is keyed by that day and not the host's local one: a session in
+// Berlin still counts as the same Loomy day the endpoint does.
+function v2BeijingDay(now = Date.now()) {
+  return new Date(now + 8 * 3600e3).toISOString().slice(0, 10)
+}
+
+// v2Renew is the daily silent renewal — the V1 first-login claim carried
+// on the v2 host's own back: the credential out of the integration's
+// active connection (the same reading v2Refresh makes), the same
+// first-login endpoint the client hits on every sign-in, idempotent for
+// the day. The host's storage is one flat shared keyspace with no
+// per-plugin scoping, so the mark's key carries the plugin's namespace
+// itself. A day already renewed returns before any ask; a connection
+// with no token returns before one; and only the endpoint's own success
+// code writes the mark — a business failure leaves it off, the next tick
+// asking again. Nothing here is ever reported: whatever the renewal
+// meets — no storage domain, a refused ask, a business failure — is a
+// silent return, the retry being the next event, the next half hour, or
+// the next day.
+//
+// The renewal also carries the grant's size home. The answer it already
+// pays for names dailyQuota (and the cycle date with it), the same read
+// the V1 check-in makes of the same answer (pickNumber over pointsFloor,
+// cycleDateOf beside it), and the v2 credential's metadata carries no
+// such fields — the sign-in writes only accountId and uid — so a pure-v2
+// account's panel would never find a size anywhere else: the records
+// answer carries the remaining alone, and the file note only a magpie
+// check-in writes. So a successful renewal notes the pair in the host's
+// own storage, under its own namespaced key: whichever fields the answer
+// actually carries go in (a missing one is left out, never invented),
+// and the write is best-effort beside the day's own mark — a refusing
+// store costs the panel its percentage, never the renewal its claim.
+const V2_RENEWAL_KEY = "loomy-auth/renewal/last" // the day's mark, namespaced: the keyspace is the host's own
+const V2_RENEWAL_INTERVAL_MS = 30 * 60_000 // the between-ticks rest: a half hour, not a spin
+
+async function v2Renew(ctx) {
+  try {
+    if (typeof ctx?.storage?.get !== "function" || typeof ctx?.storage?.set !== "function") return
+    const today = v2BeijingDay(Date.now())
+    const last = await ctx.storage.get(V2_RENEWAL_KEY)
+    if (last === today) return
+    const connection = await ctx?.integration?.connection?.active?.(ID)
+    if (!connection) return
+    const credential = await ctx.integration.connection.resolve?.(connection)
+    const access = typeof credential?.access === "string" ? credential.access.trim() : ""
+    if (!access) return
+    const payload = await tokenPost(FIRST_LOGIN_PATH, {}, access)
+    if (businessCode(payload) === SUCCESS) {
+      await ctx.storage.set(V2_RENEWAL_KEY, today)
+      // the same size-and-cycle read the V1 check-in makes of the same
+      // answer — the panel's percentage rides on it, silently
+      const quota = pickNumber(pointsFloor(payload)?.dailyQuota)
+      const cycleDate = cycleDateOf(payload)
+      if (quota !== undefined || cycleDate !== undefined) {
+        const size = { ...(quota !== undefined ? { dailyQuota: quota } : {}), ...(cycleDate !== undefined ? { dailyCycleDate: cycleDate } : {}) }
+        await ctx.storage.set(V2_QUOTA_KEY, size)
+      }
+    }
+  } catch {} // the renewal is never worth a failure: silent, whatever it meets
+}
+
 // v2Refresh re-asks the live model list and replays the provider transform:
 // read off at setup and again on every credential event, because the rows
 // are the account's own — a fresh sign-in may name models the snapshot never
@@ -1616,9 +1698,12 @@ async function v2Refresh(ctx) {
 
 // v2Setup is the registration itself, in the order the host needs it: the
 // integration (its name and its sign-in method), the provider (info and
-// rows), the credential events (each one a refresh), then the first refresh
+// rows), the credential events (each one a refresh, each one the day's
+// renewal behind it), then the first refresh
 // — an account signed in before this run started gets its live list at
-// once. A repeat setup (a host that loads twice, a test's second context)
+// once — and the renewal wired behind it, at start, at every event, and
+// on a half-hour timer whose clearing rides among the disposers. A repeat
+// setup (a host that loads twice, a test's second context)
 // gives up the previous run's registrations first. The cleanup runs the
 // disposals the registrations answered — a synchronous call each, whatever
 // they return — and the subscription's abort rides among them.
@@ -1649,11 +1734,11 @@ async function v2Setup(ctx) {
     }
   } catch {}
   // the credential events: a sign-in, a switch, an integration update — each
-  // a fresh live list and a replay. The subscription is awaited before the
-  // walk (a host's subscribe may be an async function answering the iterable,
-  // or a plain one returning it — await reads both the same), the walk is
-  // aborted at cleanup, and an unknown type name is the host's warning, not
-  // an error here.
+  // a fresh live list, a replay, and the day's renewal behind them. The
+  // subscription is awaited before the walk (a host's subscribe may be an
+  // async function answering the iterable, or a plain one returning it —
+  // await reads both the same), the walk is aborted at cleanup, and an
+  // unknown type name is the host's warning, not an error here.
   try {
     if (typeof ctx?.event?.subscribe === "function") {
       const controller = new AbortController()
@@ -1664,6 +1749,7 @@ async function v2Setup(ctx) {
             signal: controller.signal,
           })) {
             await v2Refresh(ctx)
+            void v2Renew(ctx) // fire-and-forget: the renewal is silent, whatever it meets
           }
         } catch {}
       })()
@@ -1675,6 +1761,20 @@ async function v2Setup(ctx) {
   try {
     await v2Refresh(ctx)
   } catch {}
+  // the daily renewal: once now, once after every credential event, and on
+  // a half-hour timer between the two — the day's first-login claim made
+  // whatever hour the host was started at. Fire-and-forget: v2Renew wraps
+  // its whole body, so the promise never rejects and the renewal is never
+  // worth a failed setup; the timer's clearing rides among the disposers,
+  // the same giving-up the registrations answer. The timer unrefs itself
+  // the way the reference plugin's does (the optional chain for a host
+  // whose timer object carries no unref): an unreffed interval never holds
+  // the host's own natural exit open — the renewal keeps its half hour
+  // only while the process lives, never the other way around.
+  void v2Renew(ctx)
+  const renewalTimer = setInterval(() => v2Renew(ctx), V2_RENEWAL_INTERVAL_MS)
+  renewalTimer.unref?.()
+  v2Disposers.push(() => clearInterval(renewalTimer))
   return () => {
     for (const dispose of v2Disposers.splice(0)) {
       try {

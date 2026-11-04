@@ -11,8 +11,17 @@
 import "./nonet.mjs"
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import loomy, { LoomyAuthPlugin } from "./index.mjs"
+import { randomUUID } from "node:crypto"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import loomy, { LoomyAuthPlugin, _internal } from "./index.mjs"
+import tui from "./tui.mjs"
 import { fakeLoomy, json, pointAt } from "./fake.mjs"
+
+// the panel's note read goes through the same file the V1 card's does —
+// pointed at a scratch file so the run reads nothing a real checkout left
+// behind (the other suites keep the same house rule)
+process.env.LOOMY_QUOTA_CACHE_FILE = join(tmpdir(), `loomy-quota-v2-${randomUUID()}.json`)
 
 // a fake of the host context the setup registers against: the two transform
 // domains record their callbacks and run them at once on fake editors (the
@@ -35,7 +44,20 @@ const fakeCtx = (connection, events = []) => {
     subs: [], // the event subscriptions' option objects
     disposals: [], // the registrations' dispose runs
   }
+  // the storage domain: the host keeps one flat shared keyspace (no
+  // per-plugin scoping — the recon's finding), so the fake is one map and
+  // the plugin's namespaced keys sit in it beside anyone's
+  const storage = new Map()
   const ctx = {
+    storage: {
+      get: async (key) => storage.get(key),
+      set: async (key, value) => {
+        storage.set(key, value)
+      },
+      remove: async (key) => {
+        storage.delete(key)
+      },
+    },
     integration: {
       transform: async (fn) => {
         seen.integrationTransforms.push(fn)
@@ -75,7 +97,18 @@ const fakeCtx = (connection, events = []) => {
       },
     },
   }
-  return { ctx, seen }
+  return { ctx, seen, storage }
+}
+
+// waitUntil polls a condition the fire-and-forget work settles into — the
+// setup's own renewal, an event's — with a hard stop so a missing call
+// fails the test instead of hanging it
+const waitUntil = async (cond, ms = 2000) => {
+  const end = Date.now() + ms
+  while (!cond()) {
+    if (Date.now() > end) assert.ok(cond(), "the condition never came true")
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
 
 test("the default export is a v2 definition and the V1 export stands beside it", () => {
@@ -367,6 +400,7 @@ test("a refused ask for the live list falls back to the snapshot, swallowing the
     const adds = []
     seen.providerTransforms[0]({ get: () => undefined, add: (entry) => adds.push(entry) })
     assert.ok(adds[0].models.some((m) => m.id === "DeepSeek-V4.1-Flash"), "the snapshot answered instead")
+    cleanup() // the renewal timer now rides out of every setup — give it up here
   } finally {
     await up.close()
     restore()
@@ -397,4 +431,412 @@ test("the cleanup gives the registrations up: the subscription's signal with the
   cleanup()
   assert.equal(opts.signal.aborted, true)
   assert.deepEqual(seen.disposals, ["integration", "provider"])
+})
+
+// ---- the daily silent renewal ------------------------------------------------------
+
+test("v2BeijingDay is the Beijing calendar day, not the host's local one", () => {
+  const { v2BeijingDay } = _internal
+  // 2026-11-03 16:30 UTC is 2026-11-04 00:30 in Beijing: the Beijing day leads
+  assert.equal(v2BeijingDay(Date.UTC(2026, 10, 3, 16, 30)), "2026-11-04")
+  // 2026-11-03 15:59 UTC is still 2026-11-03 23:59 in Beijing: the last minute
+  assert.equal(v2BeijingDay(Date.UTC(2026, 10, 3, 15, 59)), "2026-11-03")
+  // an instant on either side of a Beijing midnight never shares a day
+  assert.notEqual(v2BeijingDay(Date.UTC(2026, 10, 3, 15, 59, 59)), v2BeijingDay(Date.UTC(2026, 10, 3, 16, 0, 0)))
+  // the shape is the endpoint's own YYYY-MM-DD
+  assert.match(v2BeijingDay(Date.UTC(2026, 0, 2, 12)), /^\d{4}-\d{2}-\d{2}$/)
+})
+
+test("the renewal: the first call asks first-login once and marks the Beijing day", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    up.route("POST /api/v1/points/first-login", () => json({ code: "000000", data: { dailyQuota: 5, dailyCycleDate: "2999-01-01" } }))
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    const { ctx, storage } = fakeCtx(connection)
+    await _internal.v2Renew(ctx)
+    const asks = up.seen.filter((r) => r.method === "POST" && r.path === "/api/v1/points/first-login")
+    assert.equal(asks.length, 1, "the renewal asked the first-login endpoint once")
+    assert.equal(asks[0].headers.authorization, "Bearer tok") // the session is the token
+    assert.equal(asks[0].headers.token, "tok") // the gateway reads both spellings
+    assert.deepEqual(asks[0].json, {}) // first-login's own body is one
+    assert.equal(storage.get("loomy-auth/renewal/last"), _internal.v2BeijingDay(Date.now()))
+    // the grant's size rides home with the mark: the fields the answer
+    // carried, noted under the plugin's own namespaced key — the v2
+    // credential's metadata has no such fields, so this note is the
+    // pure-v2 panel's own source for its percentage
+    assert.deepEqual(storage.get("loomy-auth/quota-size"), { dailyQuota: 5, dailyCycleDate: "2999-01-01" })
+    // the same day again: the mark returns before any ask goes out
+    await _internal.v2Renew(ctx)
+    assert.equal(up.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1, "no second ask the same day")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the renewal notes only the size fields the answer actually carries — a missing one is left out, never invented", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // an answer with the quota alone: no cycle date rides, and the note
+    // keeps the one field it was given — no invented 0, no invented date
+    up.route("POST /api/v1/points/first-login", () => json({ code: "000000", data: { dailyQuota: 7 } }))
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    const { ctx, storage } = fakeCtx(connection)
+    await _internal.v2Renew(ctx)
+    assert.deepEqual(storage.get("loomy-auth/quota-size"), { dailyQuota: 7 })
+    // an answer with neither field: the day is marked and no note goes in
+    const late = fakeCtx(connection)
+    up.route("POST /api/v1/points/first-login", () => json({ code: "000000", data: {} }))
+    // a second account's storage stands in: the day mark differs by none,
+    // so the ask goes out on the second context alone
+    late.storage.set("loomy-auth/renewal/last", "1970-01-01")
+    await _internal.v2Renew(late.ctx)
+    assert.equal(late.storage.has("loomy-auth/quota-size"), false, "an answer without the size writes no note")
+    assert.equal(late.storage.get("loomy-auth/renewal/last"), _internal.v2BeijingDay(Date.now()), "the day is still marked")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("a business failure writes no mark, and the next call asks again", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    up.route("POST /api/v1/points/first-login", () => json({ code: "100001", desc: "not today" }))
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    const { ctx, storage } = fakeCtx(connection)
+    await _internal.v2Renew(ctx)
+    assert.equal(up.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 1, "the ask went out")
+    assert.equal(storage.size, 0, "a business failure writes no mark")
+    await _internal.v2Renew(ctx) // a failed day is not a renewed day
+    assert.equal(up.seen.filter((r) => r.path === "/api/v1/points/first-login").length, 2, "the retry asked again")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("no connection, no token, no storage domain, a throwing domain: the renewal returns before any ask, silently", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // a connection whose credential has no token — only whitespace
+    const blank = { active: async () => ({ integrationID: "loomy", id: "conn-1" }), resolve: async () => ({ type: "oauth", access: "   " }) }
+    const one = fakeCtx(blank)
+    await _internal.v2Renew(one.ctx)
+    // no active connection at all
+    const none = { active: async () => undefined, resolve: async () => ({ access: "tok" }) }
+    const two = fakeCtx(none)
+    await _internal.v2Renew(two.ctx)
+    // no storage domain on the context at all
+    await _internal.v2Renew({})
+    // a domain that throws: the wrap swallows it whole
+    const broken = { active: async () => { throw new Error("boom") } }
+    const three = fakeCtx(broken)
+    await _internal.v2Renew(three.ctx)
+    assert.equal(up.seen.length, 0, "no ask went anywhere")
+    assert.equal(one.storage.size, 0)
+    assert.equal(two.storage.size, 0)
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the setup renews — at start and after the event — on a half-hour timer the cleanup clears", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  // the timer through a shim: the test holds what setInterval answered and
+  // what clearInterval took, the cleanup's giving-up read off the two
+  const realSet = globalThis.setInterval
+  const realClear = globalThis.clearInterval
+  const timers = []
+  const cleared = []
+  globalThis.setInterval = (fn, ms) => {
+    const handle = realSet(fn, ms)
+    timers.push({ handle, ms })
+    return handle
+  }
+  globalThis.clearInterval = (handle) => {
+    cleared.push(handle)
+    return realClear(handle)
+  }
+  try {
+    // first-login answers the business failure until the test flips it: a
+    // failing renewal writes no mark, so the setup's renewal and the
+    // event's each ask once, whoever runs first — two asks being the
+    // signature of both having run
+    let success = false
+    up.route("GET /api/v1/models", () => json({ data: [{ id: "auto", name: "自动 · 均衡", type: "chat" }] }))
+    up.route("POST /api/v1/points/first-login", () => json(success ? { code: "000000", data: {} } : { code: "100001", desc: "not yet" }))
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    const { ctx, storage } = fakeCtx(connection, [{ type: "credential.updated" }])
+    const asks = () => up.seen.filter((r) => r.path === "/api/v1/points/first-login").length
+    const cleanup = await loomy.setup(ctx)
+    assert.equal(timers.length, 1, "one renewal timer was started")
+    assert.equal(timers[0].ms, 30 * 60_000)
+    await waitUntil(() => asks() === 2) // both renewals asked — setup's and the event's
+    // from here on the day renews for real: the next call asks once more and
+    // the mark lands, and the call after it finds the mark and asks nothing
+    success = true
+    await _internal.v2Renew(ctx)
+    assert.equal(asks(), 3)
+    assert.equal(storage.get("loomy-auth/renewal/last"), _internal.v2BeijingDay(Date.now()))
+    await _internal.v2Renew(ctx)
+    assert.equal(asks(), 3, "a marked day asks nothing")
+    cleanup()
+    assert.deepEqual(cleared, [timers[0].handle], "the cleanup cleared the renewal timer")
+  } finally {
+    globalThis.setInterval = realSet
+    globalThis.clearInterval = realClear
+    await up.close()
+    restore()
+  }
+})
+
+// ---- the /loomy panel -----------------------------------------------------------------
+
+// a fake of the TUI host context beside the server one: the same base
+// domains, plus the panel's own — a keymap recording every layer's factory,
+// a dialog whose select answers the queued picks in order (an empty queue
+// is the Esc) and records every open, an alert and a toast recorded alike.
+// The DSL drives headless in Node, so the panel's loop is tested the way it
+// runs: a command's run() walked against queued answers, no renderer.
+const fakeTuiCtx = (connection, picks = []) => {
+  const base = fakeCtx(connection)
+  const seen = {
+    layers: [], // the keymap layers' factories
+    opens: [], // every dialog open: ["select" | "alert", its options]
+    toasts: [], // every toast show
+  }
+  const ctx = {
+    ...base.ctx,
+    keymap: {
+      layer: (factory) => seen.layers.push(factory),
+    },
+    ui: {
+      dialog: {
+        select: async (options) => {
+          seen.opens.push(["select", options])
+          return picks.length ? picks.shift() : undefined
+        },
+        alert: async (options) => seen.opens.push(["alert", options]),
+      },
+      toast: {
+        show: (toast) => seen.toasts.push(toast),
+      },
+    },
+  }
+  return { ctx, seen, storage: base.storage }
+}
+
+test("the tui module is a v2 tui definition and a host without the keymap domain loads it to nothing", async () => {
+  // the shape the v2 TUI's isPlugin reads: a default export whose id is a
+  // non-empty string and whose setup is a function
+  assert.equal(tui.id, "loomy-auth")
+  assert.equal(typeof tui.setup, "function")
+  // the defensive load: no keymap domain, no panel, no throw, no cleanup
+  assert.equal(await tui.setup({}), undefined)
+})
+
+test("the panel's data layer: usageOf reads the records answer into the numbers the rows show", () => {
+  // the records answer's own size is the fallback path — the older answer
+  // shape, an answer that carries dailyQuota beside the remaining. It wins
+  // over any note when it is there (the usageOf read's own floor), but the
+  // upstream the repository has observed ships the remaining alone, so the
+  // panel's size ordinarily travels the other sources: the credential's
+  // fields, the renewal's storage note, the file note
+  const payload = { code: "000000", data: { data: { balance: 8000, dailyBalance: 3011, dailyQuota: 5000 } } }
+  const card = _internal.usageOf(payload, 5000, "2999-01-01")
+  assert.equal(card.balance, "11011 积分") // 8000 permanent + the grant's remaining
+  const daily = card.windows[0]
+  assert.equal(daily.name, "每日赠送")
+  assert.equal(daily.display, "3011 / 5000 积分") // the remaining over the size
+  assert.equal(daily.used, Math.round(((5000 - 3011) / 5000) * 100))
+  // the reset moment: the next Beijing midnight of the cycle date — far
+  // enough out that no roll-forward can touch it (a cycle date already past
+  // rolls forward, the card never reading "already reset")
+  assert.equal(daily.resetsAt, "2999-01-01T16:00:00.000Z")
+  // today's cycle date reads a reset that is still ahead
+  const today = _internal.usageOf(payload, 5000, _internal.v2BeijingDay(Date.now()))
+  assert.ok(Date.parse(today.windows[0].resetsAt) > Date.now(), "today's reset is ahead")
+  // the quota the answer names wins over the note — a bare answer without
+  // one shows the note's size (the renewal's storage note or the file note,
+  // what the panel reads behind the credential), and with neither, no share
+  // is invented: the remaining stands alone, labeled as the remaining it is
+  const bare = _internal.usageOf({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011 } } }, undefined, undefined)
+  assert.equal(bare.windows[0].display, "剩余 3011 积分")
+  assert.equal(bare.windows[0].used, 0)
+  const noted = _internal.usageOf({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011 } } }, 5000, undefined)
+  assert.equal(noted.windows[0].display, "3011 / 5000 积分")
+  // the permanent row set aside, always zero of a window to consume
+  assert.deepEqual(
+    { name: card.windows[1].name, used: card.windows[1].used, aside: card.windows[1].aside },
+    { name: "永久积分", used: 0, aside: true }
+  )
+})
+
+test("the panel: /loomy opens, the check-in asks first-login, its wording comes back, Esc closes", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // the records answer the real upstream ships: the remaining alone, no
+    // size riding with it — the panel's size must come from elsewhere
+    // (the renewal's storage note here, the credential's fields or the
+    // file note behind them)
+    up.route("GET /api/v2/points/records", () =>
+      json({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011 } } })
+    )
+    up.route("POST /api/v1/points/first-login", () =>
+      json({ code: "000000", data: { data: { dailyQuota: 5000, dailyConsumed: 1989, dailyBalance: 3011, dailyCycleDate: "2999-01-01" } } })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    // the pick queue: check in, then Esc — one full loop of the panel
+    const { ctx, seen, storage } = fakeTuiCtx(connection, ["checkin", undefined])
+    // the renewal runs first, as the server side's setup runs it before any
+    // panel opens: its success notes the grant's size in the host's storage
+    // — the pure-v2 account's own source, the metadata carrying no fields
+    // of its own and the records answer no size at all
+    await _internal.v2Renew(ctx)
+    assert.deepEqual(storage.get("loomy-auth/quota-size"), { dailyQuota: 5000, dailyCycleDate: "2999-01-01" })
+    assert.equal(await tui.setup(ctx), undefined, "the panel owns no timer, so the setup hands back no cleanup")
+    assert.equal(seen.layers.length, 1, "one keymap layer went in")
+    const command = seen.layers[0]().commands.find((c) => c.slash?.name === "loomy")
+    assert.ok(command, "the layer carries the /loomy command")
+    assert.equal(command.palette, true, "the command is palette-reachable")
+    await command.run()
+    // the reads: once before the check-in, once after it — the loop's
+    // re-read — the session in both headers the gateway reads
+    const reads = up.seen.filter((r) => r.method === "GET" && r.path === "/api/v2/points/records")
+    assert.equal(reads.length, 2, "the panel read the records call before and after the check-in")
+    assert.equal(reads[0].headers.authorization, "Bearer tok")
+    assert.equal(reads[0].headers.token, "tok")
+    // the check-in action: the same first-login call, its body the empty object
+    const asks = up.seen.filter((r) => r.method === "POST" && r.path === "/api/v1/points/first-login")
+    assert.equal(asks.length, 2, "the renewal's ask and the check-in's went out")
+    assert.deepEqual(asks[1].json, {}) // the panel's own ask
+    // its wording on an alert: the claim reader's own message
+    const alert = seen.opens.find((o) => o[0] === "alert")
+    assert.ok(alert, "the check-in's wording came back")
+    assert.ok(alert[1].message.includes("每日赠送积分已刷新"), "the claim's own wording")
+    // the first open carried the state rows and the two actions
+    const open = seen.opens[0]
+    assert.equal(open[0], "select")
+    const options = open[1].options
+    assert.ok(
+      options.some((o) => o.title.includes("已登录") && o.title.includes("138****8000")),
+      "the sign-in state row carries the masked phone"
+    )
+    assert.ok(options.some((o) => o.title.includes("积分总额")), "the points-total row")
+    const dailyRow = options.find((o) => o.title.includes("每日赠送"))
+    assert.ok(dailyRow, "the daily-grant row")
+    // the size is the storage note's — the panel read the renewal's write,
+    // the records answer carrying the remaining alone
+    assert.ok(dailyRow.description.includes("3011 / 5000"), "remaining over size in the description")
+    assert.match(dailyRow.description, /北京时间 \d{2}-\d{2} \d{2}:\d{2} 重置/, "the reset moment in Beijing time")
+    assert.ok(options.some((o) => o.title === "立即签到"), "the check-in action")
+    assert.ok(options.some((o) => o.title === "刷新"), "the refresh action")
+    for (const option of options) {
+      if (option.value === "checkin" || option.value === "refresh") {
+        assert.ok(!option.disabled, `${option.title} is an action`)
+      } else {
+        assert.equal(option.disabled, true, `${option.title} is a readout`)
+      }
+    }
+    assert.equal(seen.opens.length, 3, "select, alert, select — then the Esc closed the loop")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the panel's fallback: a records answer carrying its own size answers when no note stands", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // the older answer shape: the size riding the records answer itself —
+    // the usageOf read's own floor, standing in when neither the
+    // credential's fields nor any note was written
+    up.route("GET /api/v2/points/records", () =>
+      json({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011, dailyQuota: 5000 } } })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    const { ctx, seen, storage } = fakeTuiCtx(connection, [undefined])
+    assert.equal(storage.size, 0, "no note was written by anything")
+    await tui.setup(ctx)
+    await seen.layers[0]().commands[0].run()
+    const dailyRow = seen.opens[0][1].options.find((o) => o.title.includes("每日赠送"))
+    assert.ok(dailyRow, "the daily-grant row")
+    assert.ok(dailyRow.description.includes("3011 / 5000"), "the answer's own size answers")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the panel with no size anywhere: the remaining stands alone, labeled as the remaining it is", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    // neither a note anywhere (no renewal ran, no check-in wrote, the
+    // credential's metadata carries no fields) nor a size on the answer:
+    // no share is invented
+    up.route("GET /api/v2/points/records", () =>
+      json({ code: "000000", data: { data: { balance: 8000, dailyBalance: 3011 } } })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok", metadata: { accountId: "138****8000" } }),
+    }
+    const { ctx, seen, storage } = fakeTuiCtx(connection, [undefined])
+    assert.equal(storage.size, 0, "no note was written by anything")
+    await tui.setup(ctx)
+    await seen.layers[0]().commands[0].run()
+    const dailyRow = seen.opens[0][1].options.find((o) => o.title.includes("每日赠送"))
+    assert.ok(dailyRow, "the daily-grant row")
+    assert.ok(dailyRow.description.includes("剩余 3011 积分"), "the remaining alone, labeled as the remaining")
+    assert.ok(!dailyRow.description.includes("/"), "no share was invented")
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
+test("the panel without a connection opens showing the signed-out row and asks nothing anywhere", async () => {
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    const { ctx, seen } = fakeTuiCtx(undefined, [undefined])
+    await tui.setup(ctx)
+    await seen.layers[0]().commands[0].run()
+    assert.equal(seen.opens[0][0], "select")
+    assert.ok(seen.opens[0][1].options[0].title.includes("未登录"), "the signed-out row")
+    assert.ok(seen.opens[0][1].options.some((o) => o.title === "刷新"), "the panel still opens on its refresh action")
+    assert.equal(up.seen.length, 0, "no ask went anywhere")
+    assert.equal(seen.opens.length, 1, "the immediate Esc closed the loop")
+  } finally {
+    await up.close()
+    restore()
+  }
 })

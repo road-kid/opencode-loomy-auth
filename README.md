@@ -80,12 +80,25 @@ is xhigh, Kimi K2.6 has no effort parameter at all — only none's
 turn-it-off). The picker's Default sends no field and the gateway's own
 default gear applies.
 
+### Points in the TUI, and the daily renewal
+
+Type `/loomy` (or find "Loomy 积分面板" in the command palette) for a small
+panel: the sign-in state, the points total, and the daily grant with its
+remaining over its size and its reset moment in Beijing time — with
+**check in now** (the same first-login call the Check in now button makes,
+worded the same way) and **refresh** beside them. The day's renewal also
+runs by itself: at load, behind every credential event and on a half-hour
+timer, the same once-a-day claim goes out silently — a success is marked
+per Beijing day, a failure just waits for the next event or tick to ask
+again.
+
 ### What stays magpie-only
 
-The points card, the daily check-in and the image-generator roster ride
-magpie's own host-extension hooks — opencode v2 has no surface for them.
-There the plugin is three things: the phone-code sign-in, the live model
-list, and the gateway chat.
+The Usage card, the check-in switch and the image-generator roster ride
+magpie's own host-extension hooks — those stay magpie-only, while the
+`/loomy` panel above brings the points' numbers to the v2 TUI itself.
+There the plugin is the phone-code sign-in, the live model list, the
+gateway chat, and the panel.
 
 ## Signing in
 

@@ -66,10 +66,35 @@
   with the sign-in state, and the built-in 2026-10-28 snapshot (chat
   models only) stands in while the gateway is unreachable. Bearer auth
   rides the gateway calls by the host's own injection.
+- On opencode v2 the TUI carries a `/loomy` panel: one select dialog with
+  the sign-in state, the points total, the daily grant (remaining over its
+  size, its reset moment in Beijing time) and two actions — check in now
+  (the same first-login call, worded by the same claim reader as magpie's
+  Check in now) and refresh. The numbers come off the very machinery the
+  server side uses — the records call through `usageOf`, imported from
+  `index.mjs`'s `_internal` face, so no second copy can drift. The grant's
+  size reaches the panel the v2 way: the records answer carries the
+  remaining alone, and the v2 credential's metadata no size fields, so the
+  renewal notes the size (and cycle date) the first-login answer carries
+  in the host's storage under its own namespaced key, and the panel reads
+  the credential's fields first, that note behind them, the shared file
+  note behind that — a pure-v2 account's percentage no longer out of
+  reach. The package
+  now exports `./tui` (the key the v2 host reads to compute `features.tui`;
+  magpie's loader, whose entry list never leaves the four sources it has
+  always read, does not touch it) and ships `tui.mjs` in `files`.
+- On opencode v2 the day's first-login renewal runs by itself: at load, behind
+  every credential event and on a half-hour timer, the same once-a-day claim
+  magpie's Daily check-in makes — its success marked per Beijing calendar
+  day in the host's storage (a namespaced key on the flat shared keyspace),
+  anything less than success left unmarked for the next event or tick to
+  retry, and nothing ever reported. The timer's clearing rides the plugin
+  cleanup's disposers.
 - The points card, the daily check-in and the image-generator roster stay
-  magpie-only: they ride the host-extension hooks magpie exposes, and
-  opencode v2 has no surface for them. There the plugin is the phone-code
-  sign-in, the live model list and the gateway chat.
+  magpie-only: they ride the host-extension hooks magpie exposes. The
+  `/loomy` panel (above) brings the points' numbers to the v2 TUI itself;
+  the rest of the plugin there is the phone-code sign-in, the live model
+  list and the gateway chat.
 
 ## 0.1.7 — 2026-11-02
 

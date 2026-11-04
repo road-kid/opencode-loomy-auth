@@ -4,9 +4,13 @@
   "description": "OpenCode provider plugin for Loomy (iFlytek): phone-code sign-in, the live OpenAI-compatible model gateway, dual point wallets and the daily first-login refresh",
   "type": "module",
   "main": "./index.mjs",
-  "exports": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./tui": "./tui.mjs"
+  },
   "files": [
     "index.mjs",
+    "tui.mjs",
     "README.md",
     "CHANGELOG.md",
     "docs/README.zh.md"
