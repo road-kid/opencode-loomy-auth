@@ -68,7 +68,8 @@ magpie quota                   # 积分卡片
 每行盖的通用五档 `reasoning_efforts` 戳（2026-11-17 六个在售思考模型都
 声明 none/low/medium/high/xhigh）对六款模型全是错的——DeepSeek 与 GLM
 为 low/high/max（DeepSeek 另有桌面选择器实测佐证），qwen 为
-low/medium/xhigh，MiMo 为 none/medium，Spark 为 none/low/high。表内没有的
+low/medium/xhigh，MiMo 无任何挡位（官方以 thinking.type 开关控制思考），
+Spark 为 none/low/high。表内没有的
 行仍按各行声明原样透传。不声明的行——`auto`——兜底 low/medium/high 三档。
 picker 的 Default 不发字段，落到网关自己的默认档。
 
@@ -124,7 +125,7 @@ TUI 里。v2 侧的插件是手机验证码登录、实时模型清单、网关�
 登录后，模型清单实时读取自 `GET /api/v1/models`：capabilities 变成
 工具 / 思考 / 图片位，上下文与输出上限原样透传，reasoning-effort 变体
 按厂商文档策展的逐模型表（DeepSeek 与 GLM 为 low/high/max，qwen 为
-low/medium/xhigh，MiMo 为 none/medium，Spark 为 none/low/high），表内没有
+low/medium/xhigh，MiMo 无挡位，Spark 为 none/low/high），表内没有
 的行按该行 `reasoning_efforts` 声明原样透传，只有不声明的行才兜底
 low/medium/high 三档。网关把积分倍率拼在展示名尾部
 （`MiniMax M3 （x4.0）`——半角全角括号都出现）；插件把后缀拆下来——
@@ -224,8 +225,8 @@ Settings → Usage → Plugins，随 **magpie ≥ v0.1.1083** 提供，**默认�
   只有 GLM 家族可靠，而较新的 `DeepSeek-V4.1-Flash` 声明了图片输入，
   其形态在此网关上未经验证。
 - **`reasoning_effort` 在非思考模型上被忽略。** 变体按厂商文档策展的逐模型
-  表（DeepSeek 与 GLM 为 low/high/max，qwen 为 low/medium/xhigh，MiMo 为
-  none/medium，Spark 为 none/low/high）；表内没有的行跟随每行的
+  表（DeepSeek 与 GLM 为 low/high/max，qwen 为 low/medium/xhigh，MiMo 无
+  挡位，Spark 为 none/low/high）；表内没有的行跟随每行的
   `reasoning_efforts` 声明原样透传，只有不声明的行才兜底 low/medium/high
   三档；上游对不思考的模型丢弃该字段——已知行为。
   哪些模型思考以实时目录声明为准——2026-11-17 当天大多数文本模型都声明了，

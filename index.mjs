@@ -1619,7 +1619,8 @@ function v2DisplayName(m) {
 
 // the reasoning efforts a v2 picker offers: the vendor's real menu when
 // VENDOR_LEVELS names the row — DeepSeek and GLM low / high / max, qwen low /
-// medium / xhigh, MiMo none / medium, Spark none / low / high, each curated
+// medium / xhigh, MiMo nothing at all (thinking.type's switch is not a
+// menu), Spark none / low / high, each curated
 // from its vendor's docs and DeepSeek's also confirmed by the desktop picker
 // on 2026-11-17 — else the gateway row's own reasoning_efforts declaration
 // (rowModelOf's efforts), passed through as it stands: the order kept,

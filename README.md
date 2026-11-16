@@ -74,7 +74,8 @@ the vendors' own display names — a model the name table doesn't know
 keeps its cleaned gateway name with the leading brand word set right —
 and the reasoning gears its vendor's docs name — a curated per-model table
 (DeepSeek and GLM: low / high / max, the DeepSeek menu also read off the
-desktop picker; qwen: low / medium / xhigh; MiMo: none / medium; Spark:
+desktop picker; qwen: low / medium / xhigh; MiMo: no gears at all (its
+docs run thinking on a thinking.type switch); Spark:
 none / low / high), not the gateway's five-level `reasoning_efforts` stamp,
 which is boilerplate and wrong for all six. A row the table does not name
 keeps its declaration passed through as it stands; a row that declares
@@ -141,7 +142,7 @@ Signed in, the model list is read live from `GET /api/v1/models`: capabilities
 become the tool / reasoning / image bits, the context and output limits pass
 through, and every model carries the reasoning gears its vendor's docs name
 (the curated per-model table: DeepSeek and GLM low / high / max, qwen
-low / medium / xhigh, MiMo none / medium, Spark none / low / high), a row
+low / medium / xhigh, MiMo no gears, Spark none / low / high), a row
 the table does not name falling back to its `reasoning_efforts` declaration
 as it stands — with the fixed low/medium/high only for a row that declares
 none. The
@@ -274,7 +275,7 @@ in one go.
   gateway is unverified.
 - **`reasoning_effort` is ignored on non-thinking models.** The variants
   follow the curated per-vendor level table (DeepSeek and GLM low / high /
-  max, qwen low / medium / xhigh, MiMo none / medium, Spark none / low /
+  max, qwen low / medium / xhigh, MiMo no gears, Spark none / low /
   high); a row the table does not name keeps its `reasoning_efforts`
   declaration as it stands, with the fixed low/medium/high only as the
   fallback for a row that declares none. The upstream drops the field on
