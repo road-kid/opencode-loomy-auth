@@ -130,17 +130,14 @@ test("the config hook's fallback table is the tool_call shape (F3), with the eff
   }
   // the rest of the thinking rows follow their own vendor card, none of them
   // the gateway's five: GLM shares the DeepSeek menu, qwen has no high, MiMo
-  // has no gradation past none
+  // has no effort gears at all (thinking.type's switch is not a menu)
   assert.deepEqual(p.models["GLM-5.3-Flash"].variants, picked)
   assert.deepEqual(p.models["qwen3.8-flash"].variants, {
     low: { reasoningEffort: "low" },
     medium: { reasoningEffort: "medium" },
     xhigh: { reasoningEffort: "xhigh" },
   })
-  assert.deepEqual(p.models["mimo-v2.5"].variants, {
-    none: { reasoningEffort: "none" },
-    medium: { reasoningEffort: "medium" },
-  })
+  assert.deepEqual(p.models["mimo-v2.5"].variants, {})
   // auto declares nothing and keeps the fixed three as the fallback, and a
   // second run clobbers nothing
   const d1017 = p.models["deepseek-v4-flash-1017"]

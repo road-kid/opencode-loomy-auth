@@ -36,9 +36,9 @@
   high, no medium; the desktop picker read the same), GLM's cards name low /
   high / max (default max, no none; xhigh is a third-party alias for max),
   qwen's chat template names low / medium / xhigh (default xhigh; high
-  answers "Unexpected reasoning effort"), MiMo's docs have none turn
-  thinking off with every other level behaving identically, and Spark's card
-  has none / low / high. A per-row table curated from those sources is now
+  answers "Unexpected reasoning effort"), MiMo's docs run thinking on a
+  thinking.type switch (enabled / disabled) with no effort gears at all, and
+  Spark's card has none / low / high. A per-row table curated from those sources is now
   the first source of truth for the V1 variants and the v2 picker;
   deepseek-v4-flash-1017 is the same family as V4.1 Flash and shares its
   menu by assumption. A row the table does not name keeps its

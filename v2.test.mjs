@@ -213,7 +213,7 @@ test("the setup registers the provider: its info and the snapshot's rows", async
       "spark-x2.6": ["none", "low", "high"],
       "GLM-5.3-Flash": ["low", "high", "max"],
       "qwen3.8-flash": ["low", "medium", "xhigh"],
-      "mimo-v2.5": ["none", "medium"],
+      "mimo-v2.5": [],
     }
     for (const [id, levels] of Object.entries(curated)) {
       const row = entry.models.find((m) => m.id === id)
@@ -320,7 +320,7 @@ test("a signed-in connection refreshes the live rows and replays the transform",
     const variants = (levels) => levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
     assert.deepEqual(models[0].variants, variants(["none", "low", "high"])) // spark
     assert.deepEqual(models[1].variants, variants(["low", "high", "max"])) // GLM
-    assert.deepEqual(models[2].variants, variants(["none", "medium"])) // MiMo
+    assert.deepEqual(models[2].variants, []) // MiMo: no effort gears, thinking.type's switch is not a menu
     assert.deepEqual(models[3].variants, variants(["low", "medium", "xhigh"])) // qwen
     assert.deepEqual(models[4].variants, variants(["low", "high", "max"])) // DeepSeek
     // the auto row declares no efforts: none hang

@@ -86,10 +86,9 @@ const FALLBACK_MODELS = [
   // name low / medium / xhigh, default xhigh; high is no native level (it
   // answers "Unexpected reasoning effort"), and none is absent
   { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true, efforts: ["low", "medium", "xhigh"] },
-  // mimo-v2.5: MiMo's docs (mimo.mi.com) make none the off switch and every
-  // other level behave identically — the vendor implemented no gradation —
-  // so none plus one representative gear, medium
-  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1024000, output: 128000, reasoning: true, vision: true, efforts: ["none", "medium"] },
+  // mimo-v2.5: MiMo's docs (mimo.mi.com) run thinking on a thinking.type
+  // switch (enabled / disabled) — no effort gears exist to offer
+  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1024000, output: 128000, reasoning: true, vision: true },
   // auto: a router, no thinking gears of its own
   { id: "auto", name: "自动 · 均衡" },
 ]
@@ -121,9 +120,10 @@ const VENDOR_LEVELS = {
   "glm-5.3-flash": ["low", "high", "max"],
   // the Qwen3.8 chat template and QwenLM/Qwen3.8-Flash-Next; no high, no none
   "qwen3.8-flash": ["low", "medium", "xhigh"],
-  // MiMo's docs (mimo.mi.com): none turns thinking off, every other level
-  // behaves identically, so one representative gear beside none
-  "mimo-v2.5": ["none", "medium"],
+  // MiMo's docs (mimo.mi.com): thinking runs on a thinking.type switch
+  // (enabled / disabled) — no reasoning_effort gears exist, and an empty
+  // list here pins that: the picker hangs nothing, live row or snapshot
+  "mimo-v2.5": [],
 }
 
 // The reasoning efforts a picker offers. VENDOR_LEVELS above wins where it
