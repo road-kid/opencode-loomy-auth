@@ -4,49 +4,59 @@
 
 ### Fixed
 
-- The built-in catalog snapshot now mirrors the gateway's 2026-11-17 live
-  list: `deepseek-v4-flash-1017` is in with its image-input bit, so a host
-  reading the snapshot seeds it as attachment-capable instead of falling
-  back to its own text-only default; spark-x, MiniMax-M3, Kimi-k2.6 and
-  qwen-3.8-max, retired upstream that day, are out; and MiMo V2.5's limits
-  follow the live row (context 1024000, output 128000). The v2 side's
-  display-name table drops the retired ids and gives the 1017 row its
-  DeepSeek sibling's name.
-- The image generators now go to the gateway's own image route. All three
+- The snapshot catalog follows the gateway's live list as measured on
+  2026-11-17. `deepseek-v4-flash-1017` is in, its row declaring image
+  input, so a host seeding from the snapshot offers it as
+  attachment-capable instead of a text-only default; spark-x,
+  MiniMax-M3, Kimi-k2.6 and qwen-3.8-max, retired upstream that day, are
+  out; MiMo V2.5's limits follow the live row (context 1024000, output
+  128000). The v2 display-name table drops the retired ids and names the
+  1017 row after its DeepSeek sibling.
+
+- The image generators draw at the gateway's own image route. All three
   roster rows — Hy-Image-3.5-preview, doubao-seedream-5-lite,
-  qwen-image-3.0-pro — were pointed at `/chat/completions` like every chat
-  model, and the gateway answers each with 404 ("this model is not open
-  yet"); measured 2026-11-17, `POST {apiBase}/images/generations` with
-  `{model, prompt, n}` answers 200 and draws — the route its own catalog
-  declares with `type: "image"` and `output_modalities: ["image"]`. Their
-  records now carry that url in place of the chat one, and no
-  reasoning-effort variants: the gear menu of a thinking model is
-  meaningless on a generator. Chat models are untouched.
+  qwen-image-3.0-pro — were pointed at `/chat/completions` like every
+  chat model, and the gateway answers each with 404 (该模型暂未开放).
+  Measured 2026-11-17: `POST {apiBase}/images/generations` with
+  `{model, prompt, n}` answers 200 and returns the picture, the route
+  the rows themselves declare with `type: "image"` and
+  `output_modalities: ["image"]`. Their records now carry that url and
+  no reasoning-effort variants — a thinking model's gear menu is
+  meaningless on a generator. The round trip was drawn end to end the
+  same day through magpie's hub. Chat models are untouched.
 
 ### Changed
 
-- Reasoning efforts now follow each model's real gears instead of one
-  pinned list. The plugin used to pin every model to low/medium/high and, on
-  the v2 side, intersect that with a per-vendor table that took the Loomy
-  front end's three display gears as the candidate set. The gateway's
-  `reasoning_efforts` list turned out to be no better a source: every
-  thinking row on sale is stamped with the same five levels (none, low,
-  medium, high, xhigh) on 2026-11-17, and the vendors' own docs disprove
-  that stamp for all six — DeepSeek's guide names low / high / max (default
-  high, no medium; the desktop picker read the same), GLM's cards name low /
-  high / max (default max, no none; xhigh is a third-party alias for max),
-  qwen's chat template names low / medium / xhigh (default xhigh; high
-  answers "Unexpected reasoning effort"), MiMo's docs run thinking on a
-  thinking.type switch (enabled / disabled) with no effort gears at all, and
-  Spark's card has none / low / high. A per-row table curated from those sources is now
-  the first source of truth for the V1 variants and the v2 picker;
-  deepseek-v4-flash-1017 is the same family as V4.1 Flash and shares its
-  menu by assumption. A row the table does not name keeps its
-  `reasoning_efforts` declaration passed through as it stands, in its order;
-  a row that declares nothing (`auto`) keeps the fixed low/medium/high as
-  the V1 fallback and hangs no v2 variant. The snapshot's thinking rows
-  carry the same levels their live counterparts serve, so a snapshot host
-  and a live host offer the same menu.
+- Reasoning efforts follow each model's real gears instead of one pinned
+  list. The plugin pinned every model to low/medium/high and, on the v2
+  side, intersected that with a table taking the Loomy front end's three
+  display gears as the candidate set. The gateway's `reasoning_efforts`
+  proved no better a source: every thinking row on sale carries the same
+  five-level stamp (none, low, medium, high, xhigh), and the vendors' own
+  documents disprove it for all six. A per-vendor table (`VENDOR_LEVELS`)
+  is now the first source for the V1 variants and the v2 picker:
+
+  - deepseek-v4.1-flash, deepseek-v4-flash-1017: low / high / max —
+    DeepSeek's thinking-mode guide (default high, no medium); the desktop
+    picker read the same, and the 1017 row is the same family, sharing
+    the menu by assumption
+  - glm-5.3-flash: low / high / max — Zhipu's ModelScope card and
+    docs.bigmodel.cn (default max, no none; xhigh is a third-party
+    platform's alias of max)
+  - qwen3.8-flash: low / medium / xhigh — the Qwen3.8 chat template
+    (default xhigh; high is no native level — it answers "Unexpected
+    reasoning effort" — and none is absent)
+  - mimo-v2.5: no gears at all — MiMo's docs run thinking on a
+    `thinking.type` switch (enabled / disabled), not an effort menu
+  - spark-x2.6: none / low / high — iFlytek's MaaS card, the HF card
+    agreeing
+
+  A row the table does not name keeps its `reasoning_efforts` declaration
+  passed through as it stands, in its order; a row that declares nothing
+  (`auto`) keeps the fixed low/medium/high as the V1 fallback and hangs
+  no v2 variant; an empty table row pins a model that has no gears to an
+  empty picker. The snapshot's thinking rows carry the same menus their
+  live counterparts serve, so a snapshot host and a live host agree.
 
 ## 0.2.0 — 2026-11-03
 
