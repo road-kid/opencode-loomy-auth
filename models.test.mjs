@@ -89,7 +89,7 @@ test("the point rate rides the display name's tail, ASCII or full-width; other t
   assert.equal(m.rate, "x3.0")
 })
 
-test("the config hook's fallback table is the tool_call shape (F3), with the efforts spelled out (F4)", async () => {
+test("the config hook's fallback table is the tool_call shape (F3), with the declared efforts (F4)", async () => {
   const hooks = await LoomyAuthPlugin({ client: {} })
   const config = {}
   await hooks.config(config)
@@ -97,21 +97,42 @@ test("the config hook's fallback table is the tool_call shape (F3), with the eff
   assert.equal(p.name, "Loomy")
   assert.equal(p.npm, "@ai-sdk/openai-compatible")
   assert.equal(p.api, f.origin + "/api/v1")
-  assert.equal(Object.keys(p.models).length, _internal.FALLBACK_MODELS.length) // the web plane's ten
-  const spark = p.models["spark-x"]
-  assert.equal(spark.id, "spark-x")
-  assert.equal(spark.name, "Spark-X2.5（限时免费）")
+  assert.equal(Object.keys(p.models).length, _internal.FALLBACK_MODELS.length) // the web plane's seven
+  const spark = p.models["spark-x2.6"]
+  assert.equal(spark.id, "spark-x2.6")
+  assert.equal(spark.name, "Spark-X2.6 正式版(限时免费)")
   assert.equal(spark.tool_call, true) // the underscore spelling this table reads
   assert.ok(!("toolcall" in spark) && !("capabilities" in spark), "no ModelInfo keys in the config shape")
   assert.equal(spark.reasoning, true)
   assert.equal(spark.free, true) // the snapshot's own free declaration rides through
   assert.equal(spark.attachment, false)
   assert.deepEqual(spark.modalities, { input: ["text"], output: ["text"] })
-  assert.deepEqual(spark.limit, { context: 1048576, output: 65536 })
+  assert.deepEqual(spark.limit, { context: 1048576, output: 131072 })
   assert.deepEqual(spark.cost, { input: 0, output: 0 })
-  assert.deepEqual(spark.variants, { low: { reasoningEffort: "low" }, medium: { reasoningEffort: "medium" }, high: { reasoningEffort: "high" } })
-  // the plain models carry the efforts too, and a second run clobbers nothing
-  assert.deepEqual(p.models["MiniMax-M3"].variants, spark.variants)
+  // the snapshot row carries the gateway's 2026-11-17 declaration: all five
+  // levels hang as they stand, key and body both
+  const declared = {
+    none: { reasoningEffort: "none" },
+    low: { reasoningEffort: "low" },
+    medium: { reasoningEffort: "medium" },
+    high: { reasoningEffort: "high" },
+    xhigh: { reasoningEffort: "xhigh" },
+  }
+  assert.deepEqual(spark.variants, declared)
+  // the other thinking rows carry the same declaration; auto declares nothing
+  // and keeps the fixed three as the fallback, and a second run clobbers nothing
+  const d1017 = p.models["deepseek-v4-flash-1017"]
+  assert.equal(d1017.attachment, true) // the day's row declares image input: the snapshot carries it
+  assert.deepEqual(d1017.modalities, { input: ["text", "image"], output: ["text"] })
+  assert.deepEqual(d1017.variants, spark.variants)
+  for (const id of ["DeepSeek-V4.1-Flash", "GLM-5.3-Flash", "qwen3.8-flash", "mimo-v2.5"]) {
+    assert.deepEqual(p.models[id].variants, declared, id)
+  }
+  assert.deepEqual(p.models.auto.variants, {
+    low: { reasoningEffort: "low" },
+    medium: { reasoningEffort: "medium" },
+    high: { reasoningEffort: "high" },
+  })
   p.name = "Mine"
   await hooks.config(config)
   assert.equal(config.provider.loomy.name, "Mine")
@@ -127,14 +148,19 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
           context_length: 131072,
           max_output_tokens: 8192,
           capabilities: { function_calling: true },
+          // a declaration passes through as it stands, the order included —
+          // this is no level list of the plugin's own making
+          reasoning_efforts: ["xhigh", "high", "medium", "low", "none"],
         },
+        // a row that declares nothing falls back to the client's three
+        { id: "plain-one", name: "Plain One", capabilities: { function_calling: true } },
       ],
     })
   )
   const hooks = await LoomyAuthPlugin({ client: {} })
   const fallback = { keep: "me" }
   const out = await hooks.provider.models({ id: "loomy", models: fallback }, { auth: { access: "tok" } })
-  assert.equal(Object.keys(out).length, 1)
+  assert.equal(Object.keys(out).length, 2)
   const m = out["GLM-5.3-Flash"]
   assert.equal(m.id, "GLM-5.3-Flash")
   assert.equal(m.providerID, "loomy")
@@ -144,7 +170,20 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   assert.deepEqual(m.capabilities, { toolcall: true, reasoning: false, attachment: false }) // no underscore here
   assert.deepEqual(m.cost, { input: 0, output: 0, cache: { read: 0, write: 0 } }) // the cache keys nested
   assert.deepEqual(m.limit, { context: 131072, output: 8192 })
-  assert.deepEqual(m.variants, { low: { reasoningEffort: "low" }, medium: { reasoningEffort: "medium" }, high: { reasoningEffort: "high" } })
+  const declared = {
+    xhigh: { reasoningEffort: "xhigh" },
+    high: { reasoningEffort: "high" },
+    medium: { reasoningEffort: "medium" },
+    low: { reasoningEffort: "low" },
+    none: { reasoningEffort: "none" },
+  }
+  assert.deepEqual(m.variants, declared)
+  assert.deepEqual(Object.keys(m.variants), Object.keys(declared)) // the declaration's order, untouched
+  assert.deepEqual(out["plain-one"].variants, {
+    low: { reasoningEffort: "low" },
+    medium: { reasoningEffort: "medium" },
+    high: { reasoningEffort: "high" },
+  }) // no declaration: the fixed fallback
   assert.ok(!("tool_call" in m), "no config keys in the ModelInfo shape")
   // the ask went out with the session's two headers and no signature
   const r = f.seen.find((x) => x.path === "/api/v1/models")
@@ -273,6 +312,7 @@ test("the roster's generators ride beside the chat list, each only while the liv
   assert.equal(hy.name, _internal.IMAGE_MODELS[0].name) // the roster's display name
   assert.equal(hy.toolcall, false) // a generator draws: no tools, no thinking, however the row reads
   assert.equal(hy.reasoning, false)
+  assert.equal(hy.image, true) // the roster's vouch, which the models hook's api.url branch reads
   assert.equal(hy.vision, true) // the row's own facts ride beside
   assert.equal(hy.context, 100000)
   assert.equal(hy.output, 131072)
@@ -290,7 +330,12 @@ test("the models hook serves the roster beside the chat models, and the fallback
   f.route("GET /api/v1/models", () =>
     json({
       data: [
-        { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash(x0.8)", capabilities: { function_calling: true } },
+        {
+          id: "GLM-5.3-Flash",
+          name: "GLM 5.3 Flash(x0.8)",
+          capabilities: { function_calling: true },
+          reasoning_efforts: ["none", "low", "medium", "high", "xhigh"],
+        },
         {
           id: "doubao-seedream-5-lite",
           name: "Doubao seedream 5 lite",
@@ -304,6 +349,18 @@ test("the models hook serves the roster beside the chat models, and the fallback
   const hooks = await LoomyAuthPlugin({ client: {} })
   const out = await hooks.provider.models({ id: "loomy", models: {} }, { auth: { access: "tok" } })
   assert.deepEqual(Object.keys(out).sort(), ["GLM-5.3-Flash", "doubao-seedream-5-lite"]) // the chat model, and the one vouched-for generator the answer names
+  // the chat row keeps the chat route and its declared five gears
+  assert.equal(out["GLM-5.3-Flash"].api.url, f.origin + "/api/v1/chat/completions")
+  assert.deepEqual(out["GLM-5.3-Flash"].variants, {
+    none: { reasoningEffort: "none" },
+    low: { reasoningEffort: "low" },
+    medium: { reasoningEffort: "medium" },
+    high: { reasoningEffort: "high" },
+    xhigh: { reasoningEffort: "xhigh" },
+  })
+  // a generator goes to the gateway's own image route, and hangs no thinking gears
+  assert.equal(out["doubao-seedream-5-lite"].api.url, f.origin + "/api/v1/images/generations")
+  assert.deepEqual(out["doubao-seedream-5-lite"].variants, {})
   assert.equal(out["doubao-seedream-5-lite"].capabilities.toolcall, false)
   assert.equal(out["doubao-seedream-5-lite"].rate, undefined)
   // no session: the fallback answers, chat models alone — a gated entry

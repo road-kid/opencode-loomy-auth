@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.1 — 2026-11-17
+
+### Fixed
+
+- The built-in catalog snapshot now mirrors the gateway's 2026-11-17 live
+  list: `deepseek-v4-flash-1017` is in with its image-input bit, so a host
+  reading the snapshot seeds it as attachment-capable instead of falling
+  back to its own text-only default; spark-x, MiniMax-M3, Kimi-k2.6 and
+  qwen-3.8-max, retired upstream that day, are out; and MiMo V2.5's limits
+  follow the live row (context 1024000, output 128000). The v2 side's
+  display-name table drops the retired ids and gives the 1017 row its
+  DeepSeek sibling's name.
+- The image generators now go to the gateway's own image route. All three
+  roster rows — Hy-Image-3.5-preview, doubao-seedream-5-lite,
+  qwen-image-3.0-pro — were pointed at `/chat/completions` like every chat
+  model, and the gateway answers each with 404 ("this model is not open
+  yet"); measured 2026-11-17, `POST {apiBase}/images/generations` with
+  `{model, prompt, n}` answers 200 and draws — the route its own catalog
+  declares with `type: "image"` and `output_modalities: ["image"]`. Their
+  records now carry that url in place of the chat one, and no
+  reasoning-effort variants: the gear menu of a thinking model is
+  meaningless on a generator. Chat models are untouched.
+
+### Changed
+
+- Reasoning efforts now pass the gateway's own declaration through. The
+  plugin used to pin every model to low/medium/high and, on the v2 side,
+  intersect that with a per-vendor table curated off the vendors' doc
+  pages. The three tiers turned out to be the Loomy front end's display
+  convention, not the gateway's ceiling: measured on 2026-11-17, all six
+  thinking models on sale declare the same five levels (none, low, medium,
+  high, xhigh; default low), and the gateway accepts any value without a
+  complaint. A row's `reasoning_efforts` list is now the only source of
+  truth — the V1 variants and the v2 picker levels are built straight from
+  it, in its order — and the curated v2 table is retired. A row that
+  declares nothing (`auto`) keeps the fixed low/medium/high as the V1
+  fallback and hangs no v2 variant. The snapshot's six thinking rows carry
+  the measured five-level declaration like any live row, so a snapshot host
+  and a live host offer the same menu.
+
 ## 0.2.0 — 2026-11-03
 
 ### Added

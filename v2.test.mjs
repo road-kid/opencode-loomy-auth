@@ -1,8 +1,8 @@
 // The opencode v2 adapter, against fakes the whole way: the default export's
 // shape beside the V1 named one, the registrations the setup makes on a fake
 // host context (the integration's name and phone-code method, the provider's
-// info and rows — the official display names, the reasoning efforts as each
-// vendor's own gears intersected with the gateway's declaration, the zeroed
+// info and rows — the official display names, the reasoning efforts the
+// gateway row declares, passed through as they stand, the zeroed
 // release date), the sign-in
 // re-wrapped into the v2 credential shape, the live model list behind a
 // signed-in connection and the snapshot behind none or a refused ask, an
@@ -188,37 +188,30 @@ test("the setup registers the provider: its info and the snapshot's rows", async
     // is not its family's newest, and an empty date — no parseable date at
     // all — keeps the row visible by default
     assert.equal(deepseek.time.released, 0)
-    // the snapshot rows carry no declaration of their own, so the official
-    // levels answer: DeepSeek's real gears — none/low/high, medium and xhigh
-    // being documented aliases of high — the body overlay the host merges
-    // into the request, the gateway's own camelCase spelling
-    assert.deepEqual(deepseek.variants, [
-      { id: "none", body: { reasoningEffort: "none" } },
-      { id: "low", body: { reasoningEffort: "low" } },
-      { id: "high", body: { reasoningEffort: "high" } },
-    ])
+    // the snapshot rows carry the gateway's 2026-11-17 declaration, and it
+    // passes through whole: all five levels, in the declaration's order —
+    // the body overlay the host merges into the request, the gateway's own
+    // camelCase spelling
+    const declared = ["none", "low", "medium", "high", "xhigh"].map((effort) => ({
+      id: effort,
+      body: { reasoningEffort: effort },
+    }))
+    assert.deepEqual(deepseek.variants, declared)
     assert.equal(deepseek.rate, undefined) // the v2 record has no field for it
     assert.equal(deepseek.free, undefined)
-    // three more rows spot-checked against the official table: Kimi — no
-    // reasoning_effort at all, none's turn-it-off alone; GLM — thinking
-    // cannot be turned off, no none; MiMo — xhigh an alias of high; and
-    // auto — no declaration, no entry — hangs none at all
-    const kimi = entry.models.find((m) => m.id === "Kimi-k2.6")
-    assert.ok(kimi, "the snapshot's Kimi row is among them")
-    assert.equal(kimi.name, "Kimi K2.6")
-    assert.deepEqual(kimi.variants, [{ id: "none", body: { reasoningEffort: "none" } }])
-    const glm = entry.models.find((m) => m.id === "GLM-5.3-Flash")
-    assert.ok(glm, "the snapshot's GLM row is among them")
-    assert.deepEqual(
-      glm.variants.map((v) => v.id),
-      ["low", "high"]
-    )
-    const mimo = entry.models.find((m) => m.id === "mimo-v2.5")
-    assert.ok(mimo, "the snapshot's MiMo row is among them")
-    assert.deepEqual(
-      mimo.variants.map((v) => v.id),
-      ["none", "low", "medium", "high"]
-    )
+    // the 1017 row — its DeepSeek sibling's declaration, the same five
+    const d1017 = entry.models.find((m) => m.id === "deepseek-v4-flash-1017")
+    assert.ok(d1017, "the snapshot's DeepSeek 1017 row is among them")
+    assert.equal(d1017.name, "DeepSeek V4.1 Flash 1017")
+    assert.deepEqual(d1017.capabilities.input, ["text", "image"]) // the row the day added carries image input
+    assert.deepEqual(d1017.variants, declared)
+    // every thinking snapshot row carries the very same five, and auto —
+    // which declares nothing — hangs none at all
+    for (const id of ["spark-x2.6", "DeepSeek-V4.1-Flash", "GLM-5.3-Flash", "qwen3.8-flash", "mimo-v2.5"]) {
+      const row = entry.models.find((m) => m.id === id)
+      assert.ok(row, id)
+      assert.deepEqual(row.variants, declared, id)
+    }
     const auto = entry.models.find((m) => m.id === "auto")
     assert.ok(auto, "the auto row is among them")
     assert.equal(auto.name, "自动 · 均衡")
@@ -279,17 +272,18 @@ test("a signed-in connection refreshes the live rows and replays the transform",
   const up = await fakeLoomy()
   const restore = pointAt(up.origin)
   try {
-    // every thinking row declares the gateway's same five-value
-    // enumeration, and the auto row declares none at all — what hangs is
-    // each declaration intersected with the official levels its vendor
-    // vouches for
+    // every thinking row declares its own list, and the auto row declares
+    // none at all. The lists differ from each other and from the old
+    // curated table on purpose: what hangs is the declaration as it stands,
+    // the order kept, nothing intersected — a level the plugin once called
+    // an alias or a ghost is served the day the gateway declares it.
     up.route("GET /api/v1/models", () =>
       json({
         data: [
-          { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", type: "chat", context_length: 4096, max_output_tokens: 1024, reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
-          { id: "kimi-k2.6", name: "Kimi k2.6", type: "chat", reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
-          { id: "qwen-3.8-max", name: "Qwen 3.8 Max", type: "chat", reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
-          { id: "qwen3.8-flash", name: "qwen 3.8 flash", type: "chat", reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
+          { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", type: "chat", context_length: 4096, max_output_tokens: 1024, reasoning_efforts: ["low", "none", "medium", "high"] },
+          { id: "glm-5.3-flash", name: "GLM 5.3 Flash", type: "chat", reasoning_efforts: ["none", "low", "medium", "high", "xhigh"] },
+          { id: "mimo-v2.5", name: "MiMo V2.5", type: "chat", reasoning_efforts: ["xhigh", "high", "medium", "low", "none"] },
+          { id: "qwen3.8-flash", name: "qwen 3.8 flash", type: "chat", reasoning_efforts: ["none", "low", "high", "xhigh"] },
           { id: "auto", name: "自动 · 均衡", type: "chat" },
         ],
       })
@@ -310,35 +304,17 @@ test("a signed-in connection refreshes the live rows and replays the transform",
     const models = adds[0].models
     assert.deepEqual(
       models.map((m) => m.id),
-      ["deepseek-v4.1-flash", "kimi-k2.6", "qwen-3.8-max", "qwen3.8-flash", "auto"] // the live rows alone: no snapshot rows, no image generators
+      ["deepseek-v4.1-flash", "glm-5.3-flash", "mimo-v2.5", "qwen3.8-flash", "auto"] // the live rows alone: no snapshot rows, no image generators
     )
     assert.equal(models[0].limit.context, 4096)
     assert.equal(models[0].limit.output, 1024)
-    // DeepSeek's own gears: medium and xhigh are documented aliases of high,
-    // so the five-value declaration intersected leaves three
-    assert.deepEqual(models[0].variants, [
-      { id: "none", body: { reasoningEffort: "none" } },
-      { id: "low", body: { reasoningEffort: "low" } },
-      { id: "high", body: { reasoningEffort: "high" } },
-    ])
-    // Kimi K2.6 has no reasoning_effort of its own — only none's
-    // turn-it-off meaning survives the intersection
-    assert.deepEqual(models[1].variants, [{ id: "none", body: { reasoningEffort: "none" } }])
-    // both Qwen rows: high is the docs' own alias of xhigh, dropped from
-    // the five so the menu shows the gear once, in the declaration's order
-    assert.deepEqual(models[2].variants, [
-      { id: "none", body: { reasoningEffort: "none" } },
-      { id: "low", body: { reasoningEffort: "low" } },
-      { id: "medium", body: { reasoningEffort: "medium" } },
-      { id: "xhigh", body: { reasoningEffort: "xhigh" } },
-    ])
-    assert.deepEqual(models[3].variants, [
-      { id: "none", body: { reasoningEffort: "none" } },
-      { id: "low", body: { reasoningEffort: "low" } },
-      { id: "medium", body: { reasoningEffort: "medium" } },
-      { id: "xhigh", body: { reasoningEffort: "xhigh" } },
-    ])
-    // the auto row declares no efforts and no vendor vouches for it: none hang
+    // the variants are the declaration, one to one, from first to last
+    const variants = (levels) => levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
+    assert.deepEqual(models[0].variants, variants(["low", "none", "medium", "high"]))
+    assert.deepEqual(models[1].variants, variants(["none", "low", "medium", "high", "xhigh"]))
+    assert.deepEqual(models[2].variants, variants(["xhigh", "high", "medium", "low", "none"]))
+    assert.deepEqual(models[3].variants, variants(["none", "low", "high", "xhigh"]))
+    // the auto row declares no efforts: none hang
     assert.deepEqual(models[4].variants, [])
     cleanup()
   } finally {
@@ -347,7 +323,7 @@ test("a signed-in connection refreshes the live rows and replays the transform",
   }
 })
 
-test("a row the tables don't know: the cleaned gateway name, the brand word set right, the efforts as declared", async () => {
+test("a row the name table doesn't know: the cleaned gateway name, the brand word set right, the efforts as declared", async () => {
   const up = await fakeLoomy()
   const restore = pointAt(up.origin)
   try {
@@ -378,7 +354,7 @@ test("a row the tables don't know: the cleaned gateway name, the brand word set 
     // the rate suffix off the name, the leading brand word set to its
     // official spelling, and nothing else about the name touched
     assert.equal(stranger.name, "Qwen brand new")
-    assert.deepEqual(stranger.variants, []) // no declaration, no table entry: a level is never claimed
+    assert.deepEqual(stranger.variants, []) // no declaration: a level is never claimed
     // a stranger that declares its efforts hangs exactly what it declared —
     // a model new to the gateway is supported the day it appears, no
     // release of this plugin needed

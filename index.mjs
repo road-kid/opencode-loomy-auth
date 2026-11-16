@@ -45,9 +45,13 @@ const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrb
 
 // ---- the model catalog ------------------------------------------------------------
 // The model gateway has a live /api/v1/models answer; the table below is a
-// snapshot of that catalog as measured live on 2026-10-28, a first install's
+// snapshot of that catalog as measured live on 2026-11-17, a first install's
 // guide until the answer can be had (and the fallback whenever it can't) —
 // the live list is the only source of truth and wins the moment it answers.
+// A snapshot ages with the catalog: the 2026-11-17 refresh dropped the four
+// ids the day had retired (spark-x, MiniMax-M3, Kimi-k2.6, qwen-3.8-max)
+// and took in deepseek-v4-flash-1017, whose row declares the same image
+// input as its DeepSeek sibling.
 // The image generators the gateway also lists are not chat choices:
 // parseModels keeps every such row off the chat list (by its type, and by
 // the generator's name it carries — the same words the host's own
@@ -61,23 +65,35 @@ const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrb
 // on, the way the two shapes below spell it.
 
 const FALLBACK_MODELS = [
-  { id: "spark-x2.6", name: "Spark-X2.6 正式版(限时免费)", rate: "x0.0", free: true, context: 1048576, output: 131072, reasoning: true },
-  { id: "spark-x", name: "Spark-X2.5（限时免费）", rate: "x0.0", free: true, context: 1048576, output: 65536, reasoning: true },
-  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true },
-  { id: "MiniMax-M3", name: "MiniMax M3", rate: "x4.0", context: 1048576, output: 512000, reasoning: true, vision: true },
-  { id: "Kimi-k2.6", name: "Kimi k2.6", rate: "x6.5", context: 262144, output: 65536, reasoning: true, vision: true },
-  { id: "qwen-3.8-max", name: "Qwen 3.8 Max", rate: "x12.0", context: 1000000, output: 65536, reasoning: true },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8", context: 1048576, output: 131072, reasoning: true, vision: true },
-  { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true },
-  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1048576, output: 131072, reasoning: true, vision: true },
+  { id: "spark-x2.6", name: "Spark-X2.6 正式版(限时免费)", rate: "x0.0", free: true, context: 1048576, output: 131072, reasoning: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  { id: "deepseek-v4-flash-1017", name: "DeepSeek V4.1 Flash 1017", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8", context: 1048576, output: 131072, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1024000, output: 128000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
   { id: "auto", name: "自动 · 均衡" },
 ]
 
-// Every model carries the same three reasoning efforts: an empty variants
-// object does nothing, and the upstream ignores the field on the models
-// that don't think — a known behavior, the reason even the plain models
-// hang the levels here, each spelled out the way the client sends it.
+// The reasoning efforts a picker offers. The gateway row's own
+// reasoning_efforts declaration is the truth, and a row that carries one
+// gets exactly those levels (see variantsOf below). The fixed three are the
+// fallback for a row that declares nothing — auto, and a snapshot row whose
+// day said nothing. An empty variants object does nothing, and the upstream
+// ignores the field on the models that don't think — a known behavior, the
+// reason even the plain models hang the levels here, each spelled out the
+// way the client sends it.
 const VARIANTS = Object.fromEntries(["low", "medium", "high"].map((effort) => [effort, { reasoningEffort: effort }]))
+
+// variantsOf is one model's variants in the V1 shapes: the row's own
+// declaration when it carries one, in the row's own order, the key and the
+// body both spelled the way the client sends them; the three-tier fallback
+// when it declares nothing. A declaration is a declaration even when it is
+// empty — an empty menu rather than a guessed one.
+function variantsOf(m) {
+  return m.efforts
+    ? Object.fromEntries(m.efforts.map((effort) => [effort, { reasoningEffort: effort }]))
+    : VARIANTS
+}
 
 // The model gateway prints its point rate as a suffix on the display name —
 // "DeepSeek V4 Flash 0731 (x3.0)", "GLM 5.3 Flash(x0.8)", "Spark X2.5
@@ -197,10 +213,11 @@ function rowModelOf(row, displayName) {
     )
   // the reasoning efforts the row itself declares — the gateway's own
   // enumeration of the levels it serves for this model, the same source the
-  // Loomy web client reads its picker from. The V1 side never looks at it
-  // (its variants are the fixed low/medium/high the client itself sends);
-  // the v2 side hangs its picker's levels off it. A present array is the
-  // declaration, an empty one included; no array is no declaration at all.
+  // Loomy web client reads its picker from. Both model shapes hang their
+  // levels off it: the V1 variants pass it through and fall back to the
+  // fixed three only when it is absent, the v2 picker shows it as it
+  // stands. A present array is the declaration, an empty one included; no
+  // array is no declaration at all.
   const efforts = Array.isArray(row.reasoning_efforts)
     ? row.reasoning_efforts.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim())
     : undefined
@@ -244,7 +261,11 @@ function parseModels(payload) {
 
 // imageModelsOf is the roster's entries the live catalog still names, as
 // model records: the row's own facts, the roster's display name, and what
-// a generator is — no tools, no thinking — however its row reads
+// a generator is — no tools, no thinking, and the image bit the models hook
+// reads to aim the record at the gateway's own image route — however its
+// row reads. Measured 2026-11-17: /chat/completions answers all three roster
+// generators with a 404 ("this model is not open yet"), while
+// /images/generations draws.
 function imageModelsOf(payload) {
   const listed = new Map(
     rowsOf(payload).map((row) => [typeof row?.id === "string" ? row.id.trim().toLowerCase() : "", row])
@@ -258,6 +279,9 @@ function imageModelsOf(payload) {
     m.name = entry.name
     m.toolcall = false
     m.reasoning = false
+    // the roster is the one place that vouches a row draws, whatever its
+    // row's type or name said — providerModelOf's api.url branch reads it
+    m.image = true
     out.push(m)
   }
   return out
@@ -279,7 +303,7 @@ function configModelOf(m) {
     limit: { context: m.context ?? 0, output: m.output ?? 0 },
     cost: { input: 0, output: 0 },
     ...(m.free === true ? { free: true } : {}),
-    variants: VARIANTS,
+    variants: variantsOf(m),
   }
 }
 
@@ -294,13 +318,20 @@ function providerModelOf(m, providerID = ID) {
     id: m.id,
     providerID,
     name: m.name || m.id,
-    api: { id: m.id, url: apiBase() + "/chat/completions", npm: NPM },
+    // a generator rides the gateway's own image route, a chat model the chat
+    // one: measured 2026-11-17, /chat/completions answers the roster's three
+    // generators with 404 ("this model is not open yet"), while
+    // {api}/images/generations with {model, prompt, n} draws — the route the
+    // gateway's own rows declare with type:"image" and output_modalities
+    api: { id: m.id, url: apiBase() + (m.image ? "/images/generations" : "/chat/completions"), npm: NPM },
     limit: { context: m.context ?? 0, output: m.output ?? 0 },
     capabilities: { toolcall: m.toolcall !== false, reasoning: m.reasoning === true, attachment: m.vision === true },
     cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
     ...(m.free === true ? { free: true } : {}),
     ...(m.rate !== undefined ? { rate: m.rate } : {}),
-    variants: VARIANTS,
+    // a generator has no thinking gears to offer, and an empty variants
+    // object does nothing — the shape's own way of saying none
+    variants: m.image ? {} : variantsOf(m),
   }
 }
 
@@ -1488,16 +1519,14 @@ const V2_METHOD_ID = "phone-code" // the method's id under the loomy integration
 const V2_PACKAGE = "@opencode/ai/providers/openai-compatible"
 
 // the display names as the vendors themselves spell them, keyed by the
-// lowercase model id — the ids arrive in any case (Kimi-k2.6, qwen3.8-flash,
-// glm-5.3-flash) and the gateway's own names are marketing strings
-// ("Spark-X2.6 正式版(限时免费)", "qwen 3.8 flash"), so the rows carry the
-// official spellings read off each vendor's own pages
+// lowercase model id — the ids arrive in any case (DeepSeek-V4.1-Flash,
+// qwen3.8-flash, glm-5.3-flash) and the gateway's own names are marketing
+// strings ("Spark-X2.6 正式版(限时免费)", "qwen 3.8 flash"), so the rows
+// carry the official spellings read off each vendor's own pages
 const V2_NAMES = {
   "spark-x2.6": "Spark X2.6",
   "deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
-  "minimax-m3": "MiniMax M3",
-  "kimi-k2.6": "Kimi K2.6",
-  "qwen-3.8-max": "Qwen 3.8 Max",
+  "deepseek-v4-flash-1017": "DeepSeek V4.1 Flash 1017",
   "qwen3.8-flash": "Qwen 3.8 Flash",
   "glm-5.3-flash": "GLM 5.3 Flash",
   "mimo-v2.5": "MiMo V2.5",
@@ -1531,78 +1560,29 @@ function v2DisplayName(m) {
   return brand === undefined ? raw : brand + raw.slice(head.length)
 }
 
-// the effort levels each vendor itself vouches for, keyed by the lowercase
-// model id — read off the vendors' own doc pages on 2026-11-04, a level at
-// a time, not off the gateway's declaration (which serves every thinking
-// row the same five values, aliases and all). The rule for what makes the
-// table: a level counts only where the vendor spells it as a gear of its
-// own — an alias a vendor documents as silently mapping onto another depth
-// (DeepSeek's medium and xhigh both land on high, Qwen's high is xhigh,
-// MiMo's xhigh lands on high) is that depth wearing a second name, not a
-// gear, and the menu carries no duplicates. Row by row, the source in
-// brackets:
-// — spark-x2.6: none/low/high, the model card's own thinking-budget gears;
-//   no medium, no xhigh [huggingface.co, the Spark-X2.6 card]
-// — spark-x: the same three, an inference drawn from the series rather
-//   than a doc (the id is fallback-only, off the live list already)
-// — deepseek-v4.1-flash: none/low/high — the docs enumerate none/low/high/
-//   max, medium and xhigh are documented aliases of high, and max is a
-//   depth the gateway never declares [api-docs.deepseek.com]
-// — minimax-m3: all five — the Responses schema takes none/low/medium/
-//   high/xhigh whole [platform.minimax.io]
-// — kimi-k2.6: none alone. K2.6 has no reasoning_effort at all (thinking
-//   runs on thinking.type's two-value switch; the three-gear enumeration
-//   belongs to the K3 series), and only none's turn-it-off meaning is real
-//   here: measured through the gateway, none answers with zero thinking,
-//   low and high restate the depth the gateway already runs by default,
-//   and xhigh measurably breaks — zero thinking again
-//   [platform.kimi.com]
-// — qwen-3.8-max and qwen3.8-flash: none/low/medium/xhigh — the native
-//   gears plus none for thinking off; high is the docs' own alias of xhigh
-//   and stays off the menu rather than showing the same gear twice
-//   [help.aliyun.com]
-// — glm-5.3-flash: low/high — the docs enumerate low/high/max, thinking
-//   cannot be turned off at all (no none), medium and xhigh do not exist,
-//   and max is again a depth the gateway never declares
-//   [docs.bigmodel.cn]
-// — mimo-v2.5: none/low/medium/high — the schema takes eight values, but
-//   xhigh/max/ultra are documented aliases of high and minimal maps to low
-//   [mimo.mi.com]
-const V2_LEVELS = {
-  "spark-x2.6": ["none", "low", "high"],
-  "spark-x": ["none", "low", "high"],
-  "deepseek-v4.1-flash": ["none", "low", "high"],
-  "minimax-m3": ["none", "low", "medium", "high", "xhigh"],
-  "kimi-k2.6": ["none"],
-  "qwen-3.8-max": ["none", "low", "medium", "xhigh"],
-  "qwen3.8-flash": ["none", "low", "medium", "xhigh"],
-  "glm-5.3-flash": ["low", "high"],
-  "mimo-v2.5": ["none", "low", "medium", "high"],
-}
-
-// v2VariantsOf is a row's picker levels as variants, three filters deep.
-// The bone is the official table: an id the table knows keeps only the
-// levels its vendor vouches for — the live row's own reasoning_efforts
-// declaration (rowModelOf's efforts) intersected with the table when one
-// rides the row, the declaration's own order kept; the table itself when
-// none does (a snapshot row declares nothing). An id the table doesn't
-// know (auto included) is a stranger, and a stranger's levels are the
-// gateway's declaration as it stands — Loomy's own contract, not ours to
-// second-guess for a vendor we cannot check; nothing declared and nothing
-// in the table hang nothing. The variant's id is what the picker reads,
-// the body overlay what the host merges into the request JSON —
-// reasoningEffort, the camelCase field the gateway itself parses (the
-// OpenAI snake_case spelling it never reads). The picker's own Default
-// sends no reasoningEffort at all, which is the gateway's default gear —
-// each vendor's own default differs, and the gateway's is the one that
-// actually applies.
+// the reasoning efforts a v2 picker offers come from the gateway row alone:
+// its own reasoning_efforts declaration (rowModelOf's efforts) is the one
+// source of truth, passed through as it stands — the order kept, nothing
+// intersected, nothing curated. Loomy's front end shows every thinking
+// model as low/medium/high, but those three are the client's display
+// convention, not the gateway's ceiling: measured on 2026-11-17, all six
+// thinking models on sale declared the same five levels (none, low, medium,
+// high, xhigh; default low), and the gateway takes any value handed to it
+// without a complaint, so the declaration is the whole truth there is. The
+// table v2 used to keep — each vendor's levels read off its doc pages and
+// intersected with the declaration — was an artifact of believing the
+// front end's three gears were the truth, and is retired.
+//
+// v2VariantsOf is a row's picker levels as variants: the declaration as it
+// stands, in its own order, nothing else — a row that declares nothing
+// (auto, a snapshot row) hangs nothing. The variant's id is what the
+// picker reads, the body overlay what the host merges into the request
+// JSON — reasoningEffort, the camelCase field the gateway itself parses
+// (the OpenAI snake_case spelling it never reads). The picker's own
+// Default sends no reasoningEffort at all, which is the gateway's default
+// gear — the gateway's is the one that actually applies.
 function v2VariantsOf(m) {
-  const official = V2_LEVELS[m.id.toLowerCase()]
-  const declared = m.efforts // the live row's own reasoning_efforts declaration; a snapshot row carries none
-  const levels = official
-    ? (declared ?? official).filter((level) => official.includes(level))
-    : declared ?? []
-  return levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
+  return (m.efforts ?? []).map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
 }
 
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
@@ -1644,9 +1624,9 @@ function modelV2Of(m, providerID = ID) {
     status: "active",
     enabled: true,
     time: { released: 0 },
-    // the picker's levels as variants: the official table's real gears and
-    // the gateway's own declaration intersected, a stranger's declaration
-    // as it stands — the whole of it spelled out at v2VariantsOf above
+    // the picker's levels as variants: the row's own declaration as it
+    // stands, nothing curated — the whole of it spelled out at
+    // v2VariantsOf above
     variants: v2VariantsOf(m),
   }
 }
