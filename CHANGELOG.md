@@ -25,19 +25,27 @@
 
 ### Changed
 
-- Reasoning efforts now pass the gateway's own declaration through. The
-  plugin used to pin every model to low/medium/high and, on the v2 side,
-  intersect that with a per-vendor table curated off the vendors' doc
-  pages. The three tiers turned out to be the Loomy front end's display
-  convention, not the gateway's ceiling: measured on 2026-11-17, all six
-  thinking models on sale declare the same five levels (none, low, medium,
-  high, xhigh; default low), and the gateway accepts any value without a
-  complaint. A row's `reasoning_efforts` list is now the only source of
-  truth — the V1 variants and the v2 picker levels are built straight from
-  it, in its order — and the curated v2 table is retired. A row that
-  declares nothing (`auto`) keeps the fixed low/medium/high as the V1
-  fallback and hangs no v2 variant. The snapshot's six thinking rows carry
-  the measured five-level declaration like any live row, so a snapshot host
+- Reasoning efforts now follow each model's real gears instead of one
+  pinned list. The plugin used to pin every model to low/medium/high and, on
+  the v2 side, intersect that with a per-vendor table that took the Loomy
+  front end's three display gears as the candidate set. The gateway's
+  `reasoning_efforts` list turned out to be no better a source: every
+  thinking row on sale is stamped with the same five levels (none, low,
+  medium, high, xhigh) on 2026-11-17, and the vendors' own docs disprove
+  that stamp for all six — DeepSeek's guide names low / high / max (default
+  high, no medium; the desktop picker read the same), GLM's cards name low /
+  high / max (default max, no none; xhigh is a third-party alias for max),
+  qwen's chat template names low / medium / xhigh (default xhigh; high
+  answers "Unexpected reasoning effort"), MiMo's docs have none turn
+  thinking off with every other level behaving identically, and Spark's card
+  has none / low / high. A per-row table curated from those sources is now
+  the first source of truth for the V1 variants and the v2 picker;
+  deepseek-v4-flash-1017 is the same family as V4.1 Flash and shares its
+  menu by assumption. A row the table does not name keeps its
+  `reasoning_efforts` declaration passed through as it stands, in its order;
+  a row that declares nothing (`auto`) keeps the fixed low/medium/high as
+  the V1 fallback and hangs no v2 variant. The snapshot's thinking rows
+  carry the same levels their live counterparts serve, so a snapshot host
   and a live host offer the same menu.
 
 ## 0.2.0 — 2026-11-03

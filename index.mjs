@@ -65,33 +65,89 @@ const keySecret = () => process.env.LOOMY_XFYUN_ACCESS_KEY_SECRET || "zsak6eadrb
 // on, the way the two shapes below spell it.
 
 const FALLBACK_MODELS = [
-  { id: "spark-x2.6", name: "Spark-X2.6 正式版(限时免费)", rate: "x0.0", free: true, context: 1048576, output: 131072, reasoning: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
-  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
-  { id: "deepseek-v4-flash-1017", name: "DeepSeek V4.1 Flash 1017", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8", context: 1048576, output: 131072, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
-  { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
-  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1024000, output: 128000, reasoning: true, vision: true, efforts: ["none", "low", "medium", "high", "xhigh"] },
+  // spark-x2.6: iFlytek's MaaS card (maas.xfyun.cn) names none / low / high,
+  // and the HF card agrees. Testing once saw none still think — a suspected
+  // gateway passthrough quirk; the vendor's doc has none, so it stays.
+  { id: "spark-x2.6", name: "Spark-X2.6 正式版(限时免费)", rate: "x0.0", free: true, context: 1048576, output: 131072, reasoning: true, efforts: ["none", "low", "high"] },
+  // DeepSeek V4.1 Flash: the vendor's thinking-mode guide
+  // (api-docs.deepseek.com/guides/thinking_mode) names low / high / max,
+  // default high, no medium; the desktop picker was read to match on
+  // 2026-11-17
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["low", "high", "max"] },
+  // deepseek-v4-flash-1017: the same vendor and family as V4.1 Flash, so the
+  // same menu by assumption; its own picker, should it differ, is the truth
+  { id: "deepseek-v4-flash-1017", name: "DeepSeek V4.1 Flash 1017", rate: "x2.0", context: 1048576, output: 384000, reasoning: true, vision: true, efforts: ["low", "high", "max"] },
+  // GLM-5.3-Flash: Zhipu's ModelScope card (ZhipuAI/GLM-5.3-Flash) and
+  // docs.bigmodel.cn name low / high / max, default max, no none; xhigh is a
+  // third-party platform alias that maps to max (the measured 2-4x thinking
+  // surge under xhigh was simply max)
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash", rate: "x0.8", context: 1048576, output: 131072, reasoning: true, vision: true, efforts: ["low", "high", "max"] },
+  // qwen3.8-flash: the Qwen3.8 chat template and QwenLM/Qwen3.8-Flash-Next
+  // name low / medium / xhigh, default xhigh; high is no native level (it
+  // answers "Unexpected reasoning effort"), and none is absent
+  { id: "qwen3.8-flash", name: "qwen 3.8 flash", rate: "x0.8", context: 1000000, output: 131072, reasoning: true, vision: true, efforts: ["low", "medium", "xhigh"] },
+  // mimo-v2.5: MiMo's docs (mimo.mi.com) make none the off switch and every
+  // other level behave identically — the vendor implemented no gradation —
+  // so none plus one representative gear, medium
+  { id: "mimo-v2.5", name: "MiMo V2.5", rate: "x3.3", context: 1024000, output: 128000, reasoning: true, vision: true, efforts: ["none", "medium"] },
+  // auto: a router, no thinking gears of its own
   { id: "auto", name: "自动 · 均衡" },
 ]
 
-// The reasoning efforts a picker offers. The gateway row's own
-// reasoning_efforts declaration is the truth, and a row that carries one
-// gets exactly those levels (see variantsOf below). The fixed three are the
-// fallback for a row that declares nothing — auto, and a snapshot row whose
-// day said nothing. An empty variants object does nothing, and the upstream
-// ignores the field on the models that don't think — a known behavior, the
-// reason even the plain models hang the levels here, each spelled out the
-// way the client sends it.
+// The reasoning levels each thinking model really has, curated from the
+// vendors' own docs — not from the gateway row. The gateway stamps every
+// thinking row with the same five-level reasoning_efforts declaration (none,
+// low, medium, high, xhigh), and that stamp is wrong for all six models on
+// sale: none of them has all five, and several have levels the stamp never
+// names. The vendor docs are the truth, and the desktop client's picker
+// confirms DeepSeek's menu by hand: read on 2026-11-17, it offers low / high
+// / max exactly, and the gateway answers the max it sends (200). The
+// per-row sources are noted beside each row; the table exists so both the V1
+// variants and the v2 picker read the same menu. The keys are the ids
+// lowercased: the live id may spell them differently (DeepSeek-V4.1-Flash),
+// so the lookup lowercases first. deepseek-v4-flash-1017 shares its
+// sibling's vendor and family and is assumed to share the menu; if its own
+// picker turns out otherwise, that picker is the truth.
+const VENDOR_LEVELS = {
+  // iFlytek MaaS (maas.xfyun.cn) Spark-X2.6 card; the HF card agrees
+  "spark-x2.6": ["none", "low", "high"],
+  // DeepSeek thinking-mode guide (api-docs.deepseek.com), and the desktop
+  // picker read 2026-11-17 — the vendor and the client both name these three
+  "deepseek-v4.1-flash": ["low", "high", "max"],
+  // the same family as the row above, the same menu by assumption
+  "deepseek-v4-flash-1017": ["low", "high", "max"],
+  // Zhipu's ModelScope card (ZhipuAI/GLM-5.3-Flash) and docs.bigmodel.cn;
+  // xhigh is a third-party platform alias that maps to max
+  "glm-5.3-flash": ["low", "high", "max"],
+  // the Qwen3.8 chat template and QwenLM/Qwen3.8-Flash-Next; no high, no none
+  "qwen3.8-flash": ["low", "medium", "xhigh"],
+  // MiMo's docs (mimo.mi.com): none turns thinking off, every other level
+  // behaves identically, so one representative gear beside none
+  "mimo-v2.5": ["none", "medium"],
+}
+
+// The reasoning efforts a picker offers. VENDOR_LEVELS above wins where it
+// names the row: those are the vendor's real levels, curated from its docs.
+// Otherwise the gateway row's reasoning_efforts declaration is the truth, and
+// a row that carries one gets exactly those levels (see variantsOf below).
+// The fixed three are the fallback for a row that declares nothing — auto,
+// and a snapshot row whose day said nothing. An empty variants object does
+// nothing, and the upstream ignores the field on the models that don't
+// think — a known behavior, the reason even the plain models hang the levels
+// here, each spelled out the way the client sends it.
 const VARIANTS = Object.fromEntries(["low", "medium", "high"].map((effort) => [effort, { reasoningEffort: effort }]))
 
-// variantsOf is one model's variants in the V1 shapes: the row's own
-// declaration when it carries one, in the row's own order, the key and the
-// body both spelled the way the client sends them; the three-tier fallback
-// when it declares nothing. A declaration is a declaration even when it is
-// empty — an empty menu rather than a guessed one.
+// variantsOf is one model's variants in the V1 shapes: the vendor's real
+// menu when VENDOR_LEVELS names the row (the table's keys are lowercase, the
+// live id may not be), else the row's own declaration when it carries one, in
+// the row's own order, the key and the body both spelled the way the client
+// sends them; the three-tier fallback when neither says anything. A
+// declaration is a declaration even when it is empty — an empty menu rather
+// than a guessed one.
 function variantsOf(m) {
-  return m.efforts
-    ? Object.fromEntries(m.efforts.map((effort) => [effort, { reasoningEffort: effort }]))
+  const levels = VENDOR_LEVELS[m.id.toLowerCase()] ?? m.efforts
+  return levels
+    ? Object.fromEntries(levels.map((effort) => [effort, { reasoningEffort: effort }]))
     : VARIANTS
 }
 
@@ -212,12 +268,13 @@ function rowModelOf(row, displayName) {
       (item) => typeof item === "string" && item.toLowerCase() === want
     )
   // the reasoning efforts the row itself declares — the gateway's own
-  // enumeration of the levels it serves for this model, the same source the
-  // Loomy web client reads its picker from. Both model shapes hang their
-  // levels off it: the V1 variants pass it through and fall back to the
-  // fixed three only when it is absent, the v2 picker shows it as it
-  // stands. A present array is the declaration, an empty one included; no
-  // array is no declaration at all.
+  // enumeration of the levels it serves for this model. It is the source for
+  // every row VENDOR_LEVELS does not name; for the rows it does, the curated
+  // table wins (the gateway's five-level stamp is boilerplate, not the real
+  // menu). Both model shapes hang their levels off it in that order: the V1
+  // variants pass it through and fall back to the fixed three only when it is
+  // absent, the v2 picker shows it as it stands. A present array is the
+  // declaration, an empty one included; no array is no declaration at all.
   const efforts = Array.isArray(row.reasoning_efforts)
     ? row.reasoning_efforts.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim())
     : undefined
@@ -1560,29 +1617,33 @@ function v2DisplayName(m) {
   return brand === undefined ? raw : brand + raw.slice(head.length)
 }
 
-// the reasoning efforts a v2 picker offers come from the gateway row alone:
-// its own reasoning_efforts declaration (rowModelOf's efforts) is the one
-// source of truth, passed through as it stands — the order kept, nothing
-// intersected, nothing curated. Loomy's front end shows every thinking
-// model as low/medium/high, but those three are the client's display
-// convention, not the gateway's ceiling: measured on 2026-11-17, all six
-// thinking models on sale declared the same five levels (none, low, medium,
-// high, xhigh; default low), and the gateway takes any value handed to it
-// without a complaint, so the declaration is the whole truth there is. The
-// table v2 used to keep — each vendor's levels read off its doc pages and
-// intersected with the declaration — was an artifact of believing the
-// front end's three gears were the truth, and is retired.
+// the reasoning efforts a v2 picker offers: the vendor's real menu when
+// VENDOR_LEVELS names the row — DeepSeek and GLM low / high / max, qwen low /
+// medium / xhigh, MiMo none / medium, Spark none / low / high, each curated
+// from its vendor's docs and DeepSeek's also confirmed by the desktop picker
+// on 2026-11-17 — else the gateway row's own reasoning_efforts declaration
+// (rowModelOf's efforts), passed through as it stands: the order kept,
+// nothing intersected, nothing curated. The declaration is the source only
+// for rows the table does not name: the gateway stamps the same five levels
+// (none, low, medium, high, xhigh; default low) on every thinking row it
+// lists, and that stamp is disproven for all six models on sale. The table
+// v2 once kept was wrong for a different reason — it read the vendors'
+// levels as candidates and intersected them with the front end's three
+// display gears; the new table takes the vendor's own levels whole, no
+// intersection and no display-gear premise.
 //
-// v2VariantsOf is a row's picker levels as variants: the declaration as it
-// stands, in its own order, nothing else — a row that declares nothing
-// (auto, a snapshot row) hangs nothing. The variant's id is what the
-// picker reads, the body overlay what the host merges into the request
-// JSON — reasoningEffort, the camelCase field the gateway itself parses
-// (the OpenAI snake_case spelling it never reads). The picker's own
+// v2VariantsOf is a row's picker levels as variants: the curated menu when
+// VENDOR_LEVELS names the row, else the declaration as it stands, in its own
+// order, nothing else — a row that is neither named nor declares anything
+// (auto, a snapshot row without a declaration) hangs nothing. The variant's
+// id is what the picker reads, the body overlay what the host merges into the
+// request JSON — reasoningEffort, the camelCase field the gateway itself
+// parses (the OpenAI snake_case spelling it never reads). The picker's own
 // Default sends no reasoningEffort at all, which is the gateway's default
 // gear — the gateway's is the one that actually applies.
 function v2VariantsOf(m) {
-  return (m.efforts ?? []).map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
+  const levels = VENDOR_LEVELS[m.id.toLowerCase()] ?? m.efforts ?? []
+  return levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
 }
 
 let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
@@ -1624,9 +1685,9 @@ function modelV2Of(m, providerID = ID) {
     status: "active",
     enabled: true,
     time: { released: 0 },
-    // the picker's levels as variants: the row's own declaration as it
-    // stands, nothing curated — the whole of it spelled out at
-    // v2VariantsOf above
+    // the picker's levels as variants: the curated menu where VENDOR_LEVELS
+    // names the row, else the row's own declaration as it stands, nothing
+    // curated — the whole of it spelled out at v2VariantsOf above
     variants: v2VariantsOf(m),
   }
 }

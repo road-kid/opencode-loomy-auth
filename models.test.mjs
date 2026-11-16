@@ -89,7 +89,7 @@ test("the point rate rides the display name's tail, ASCII or full-width; other t
   assert.equal(m.rate, "x3.0")
 })
 
-test("the config hook's fallback table is the tool_call shape (F3), with the declared efforts (F4)", async () => {
+test("the config hook's fallback table is the tool_call shape (F3), with the efforts the vendor docs name (F4)", async () => {
   const hooks = await LoomyAuthPlugin({ client: {} })
   const config = {}
   await hooks.config(config)
@@ -109,25 +109,43 @@ test("the config hook's fallback table is the tool_call shape (F3), with the dec
   assert.deepEqual(spark.modalities, { input: ["text"], output: ["text"] })
   assert.deepEqual(spark.limit, { context: 1048576, output: 131072 })
   assert.deepEqual(spark.cost, { input: 0, output: 0 })
-  // the snapshot row carries the gateway's 2026-11-17 declaration: all five
-  // levels hang as they stand, key and body both
-  const declared = {
+  // spark carries its vendor card's three gears, not the gateway's five-level
+  // stamp: none / low / high, in the table's order, key and body both
+  assert.deepEqual(spark.variants, {
     none: { reasoningEffort: "none" },
     low: { reasoningEffort: "low" },
-    medium: { reasoningEffort: "medium" },
     high: { reasoningEffort: "high" },
-    xhigh: { reasoningEffort: "xhigh" },
+  })
+  // the DeepSeek pair carries the vendor guide's low / high / max, the
+  // desktop picker's measured menu confirming it; the gateway's five-level
+  // stamp the snapshot also carries is no match for either witness
+  const picked = {
+    low: { reasoningEffort: "low" },
+    high: { reasoningEffort: "high" },
+    max: { reasoningEffort: "max" },
   }
-  assert.deepEqual(spark.variants, declared)
-  // the other thinking rows carry the same declaration; auto declares nothing
-  // and keeps the fixed three as the fallback, and a second run clobbers nothing
+  for (const id of ["DeepSeek-V4.1-Flash", "deepseek-v4-flash-1017"]) {
+    assert.deepEqual(p.models[id].variants, picked, id)
+    assert.deepEqual(Object.keys(p.models[id].variants), ["low", "high", "max"], id)
+  }
+  // the rest of the thinking rows follow their own vendor card, none of them
+  // the gateway's five: GLM shares the DeepSeek menu, qwen has no high, MiMo
+  // has no gradation past none
+  assert.deepEqual(p.models["GLM-5.3-Flash"].variants, picked)
+  assert.deepEqual(p.models["qwen3.8-flash"].variants, {
+    low: { reasoningEffort: "low" },
+    medium: { reasoningEffort: "medium" },
+    xhigh: { reasoningEffort: "xhigh" },
+  })
+  assert.deepEqual(p.models["mimo-v2.5"].variants, {
+    none: { reasoningEffort: "none" },
+    medium: { reasoningEffort: "medium" },
+  })
+  // auto declares nothing and keeps the fixed three as the fallback, and a
+  // second run clobbers nothing
   const d1017 = p.models["deepseek-v4-flash-1017"]
   assert.equal(d1017.attachment, true) // the day's row declares image input: the snapshot carries it
   assert.deepEqual(d1017.modalities, { input: ["text", "image"], output: ["text"] })
-  assert.deepEqual(d1017.variants, spark.variants)
-  for (const id of ["DeepSeek-V4.1-Flash", "GLM-5.3-Flash", "qwen3.8-flash", "mimo-v2.5"]) {
-    assert.deepEqual(p.models[id].variants, declared, id)
-  }
   assert.deepEqual(p.models.auto.variants, {
     low: { reasoningEffort: "low" },
     medium: { reasoningEffort: "medium" },
@@ -148,11 +166,20 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
           context_length: 131072,
           max_output_tokens: 8192,
           capabilities: { function_calling: true },
-          // a declaration passes through as it stands, the order included —
-          // this is no level list of the plugin's own making
+          // the live row still declares the gateway's five-level stamp; the
+          // curated table names this id and wins — the uppercase spelling
+          // still hits, the lookup lowercases first
           reasoning_efforts: ["xhigh", "high", "medium", "low", "none"],
         },
-        // a row that declares nothing falls back to the client's three
+        // a second table hit, with the DeepSeek five-level declaration that
+        // the vendor guide and the desktop picker both override
+        {
+          id: "DeepSeek-V4.1-Flash",
+          name: "DeepSeek V4.1 Flash(x2.0)",
+          capabilities: { function_calling: true, reasoning: true },
+          reasoning_efforts: ["none", "low", "medium", "high", "xhigh"],
+        },
+        // a row that declares nothing falls back to the fixed three
         { id: "plain-one", name: "Plain One", capabilities: { function_calling: true } },
       ],
     })
@@ -160,7 +187,7 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   const hooks = await LoomyAuthPlugin({ client: {} })
   const fallback = { keep: "me" }
   const out = await hooks.provider.models({ id: "loomy", models: fallback }, { auth: { access: "tok" } })
-  assert.equal(Object.keys(out).length, 2)
+  assert.equal(Object.keys(out).length, 3)
   const m = out["GLM-5.3-Flash"]
   assert.equal(m.id, "GLM-5.3-Flash")
   assert.equal(m.providerID, "loomy")
@@ -170,20 +197,22 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   assert.deepEqual(m.capabilities, { toolcall: true, reasoning: false, attachment: false }) // no underscore here
   assert.deepEqual(m.cost, { input: 0, output: 0, cache: { read: 0, write: 0 } }) // the cache keys nested
   assert.deepEqual(m.limit, { context: 131072, output: 8192 })
-  const declared = {
-    xhigh: { reasoningEffort: "xhigh" },
-    high: { reasoningEffort: "high" },
-    medium: { reasoningEffort: "medium" },
+  const picked = {
     low: { reasoningEffort: "low" },
-    none: { reasoningEffort: "none" },
+    high: { reasoningEffort: "high" },
+    max: { reasoningEffort: "max" },
   }
-  assert.deepEqual(m.variants, declared)
-  assert.deepEqual(Object.keys(m.variants), Object.keys(declared)) // the declaration's order, untouched
+  assert.deepEqual(m.variants, picked) // the table's menu beats the declared five
+  assert.deepEqual(Object.keys(m.variants), ["low", "high", "max"]) // the table's order, not the row's
   assert.deepEqual(out["plain-one"].variants, {
     low: { reasoningEffort: "low" },
     medium: { reasoningEffort: "medium" },
     high: { reasoningEffort: "high" },
   }) // no declaration: the fixed fallback
+  // the DeepSeek id is the other table hit: the uppercase live spelling still
+  // finds its row, and the declared five lose to the vendor's three
+  assert.deepEqual(out["DeepSeek-V4.1-Flash"].variants, picked)
+  assert.deepEqual(Object.keys(out["DeepSeek-V4.1-Flash"].variants), ["low", "high", "max"])
   assert.ok(!("tool_call" in m), "no config keys in the ModelInfo shape")
   // the ask went out with the session's two headers and no signature
   const r = f.seen.find((x) => x.path === "/api/v1/models")
@@ -349,14 +378,12 @@ test("the models hook serves the roster beside the chat models, and the fallback
   const hooks = await LoomyAuthPlugin({ client: {} })
   const out = await hooks.provider.models({ id: "loomy", models: {} }, { auth: { access: "tok" } })
   assert.deepEqual(Object.keys(out).sort(), ["GLM-5.3-Flash", "doubao-seedream-5-lite"]) // the chat model, and the one vouched-for generator the answer names
-  // the chat row keeps the chat route and its declared five gears
+  // the chat row keeps the chat route and the curated table's three gears
   assert.equal(out["GLM-5.3-Flash"].api.url, f.origin + "/api/v1/chat/completions")
   assert.deepEqual(out["GLM-5.3-Flash"].variants, {
-    none: { reasoningEffort: "none" },
     low: { reasoningEffort: "low" },
-    medium: { reasoningEffort: "medium" },
     high: { reasoningEffort: "high" },
-    xhigh: { reasoningEffort: "xhigh" },
+    max: { reasoningEffort: "max" },
   })
   // a generator goes to the gateway's own image route, and hangs no thinking gears
   assert.equal(out["doubao-seedream-5-lite"].api.url, f.origin + "/api/v1/images/generations")

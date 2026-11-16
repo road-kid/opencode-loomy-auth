@@ -72,11 +72,12 @@ falls back to the built-in 2026-11-17 snapshot (chat models only). Bearer
 auth on the gateway calls is injected by the host itself. The rows carry
 the vendors' own display names — a model the name table doesn't know
 keeps its cleaned gateway name with the leading brand word set right —
-and the reasoning efforts the gateway row's `reasoning_efforts`
-declaration names, passed through as they stand (on 2026-11-17 all six
-thinking models on sale declare none / low / medium / high / xhigh —
-Loomy's front end shows low/medium/high, but those three are the client's
-display convention, not the gateway's ceiling). A row that declares
+and the reasoning gears its vendor's docs name — a curated per-model table
+(DeepSeek and GLM: low / high / max, the DeepSeek menu also read off the
+desktop picker; qwen: low / medium / xhigh; MiMo: none / medium; Spark:
+none / low / high), not the gateway's five-level `reasoning_efforts` stamp,
+which is boilerplate and wrong for all six. A row the table does not name
+keeps its declaration passed through as it stands; a row that declares
 nothing — `auto` — falls back to the fixed low/medium/high. The picker's
 Default sends no field and the gateway's own default gear applies.
 
@@ -138,9 +139,12 @@ conversation to another account. Any other 401/403 is the sign-in's end.
 
 Signed in, the model list is read live from `GET /api/v1/models`: capabilities
 become the tool / reasoning / image bits, the context and output limits pass
-through, and every model carries the reasoning efforts its row's
-`reasoning_efforts` declares — passed through as they stand — with the
-fixed low/medium/high as the fallback for a row that declares none. The
+through, and every model carries the reasoning gears its vendor's docs name
+(the curated per-model table: DeepSeek and GLM low / high / max, qwen
+low / medium / xhigh, MiMo none / medium, Spark none / low / high), a row
+the table does not name falling back to its `reasoning_efforts` declaration
+as it stands — with the fixed low/medium/high only for a row that declares
+none. The
 gateway prints each model's point rate as a suffix on its display name
 (`MiniMax M3 （x4.0）` — ASCII and full-width brackets both
 occur); the plugin splits that off — the name stays clean, and the rate
@@ -269,11 +273,14 @@ in one go.
   newer `DeepSeek-V4.1-Flash` declares image input whose shape on this
   gateway is unverified.
 - **`reasoning_effort` is ignored on non-thinking models.** The variants
-  follow each row's `reasoning_efforts` declaration — passed through as it
-  stands, with the fixed low/medium/high only as the fallback for a row that
-  declares none; the upstream drops the field on the models that don't
-  think — a known behavior. Which models think is whatever the live catalog
-  declares — on 2026-11-17 most text models did, not only the spark pair.
+  follow the curated per-vendor level table (DeepSeek and GLM low / high /
+  max, qwen low / medium / xhigh, MiMo none / medium, Spark none / low /
+  high); a row the table does not name keeps its `reasoning_efforts`
+  declaration as it stands, with the fixed low/medium/high only as the
+  fallback for a row that declares none. The upstream drops the field on
+  the models that don't think — a known behavior. Which models think is
+  whatever the live catalog declares — on 2026-11-17 most text models did,
+  not only the spark pair.
 - **Streaming tool calls are not yet verified on a real account.** The
   desktop gateway's tool_calls streaming has no recorded real-machine run
   behind it; it is the first thing to check with your agent's tool loop. If
