@@ -382,7 +382,33 @@ function providerModelOf(m, providerID = ID) {
     // gateway's own rows declare with type:"image" and output_modalities
     api: { id: m.id, url: apiBase() + (m.image ? "/images/generations" : "/chat/completions"), npm: NPM },
     limit: { context: m.context ?? 0, output: m.output ?? 0 },
-    capabilities: { toolcall: m.toolcall !== false, reasoning: m.reasoning === true, attachment: m.vision === true },
+    // the capability bits three ways: flat, as models.dev spells them —
+    // the host passes a models hook's records through verbatim, and
+    // zcode's and workbuddy's pickers read attachment and modalities off
+    // the top level; nested, as OpenCode v1 reads them; and the
+    // input/output boolean mapping, as magpie's image badge reads it —
+    // read 2026-11-18 at 0.1.4477, the host marks image off
+    // capabilities.input.image alone. A record that carried only
+    // attachment and the modalities arrays answered imageSaid false, and
+    // the host fell back to its own models.dev catalog by id: that catalog
+    // knows "DeepSeek-V4.1-Flash" and not the gateway's
+    // "deepseek-v4-flash-1017", so the 1017 badge went missing — the
+    // config table's row was right, the hook's answer overwriting it. An
+    // explicit imageSaid is what overrides that fallback; the config
+    // table's records run the host's modalities() over the arrays and
+    // need no such key. A row declaring image input reads as
+    // attachment-capable on all three.
+    attachment: m.vision === true,
+    reasoning: m.reasoning === true,
+    tool_call: m.toolcall !== false,
+    modalities: { input: m.vision === true ? ["text", "image"] : ["text"], output: ["text"] },
+    capabilities: {
+      toolcall: m.toolcall !== false,
+      reasoning: m.reasoning === true,
+      attachment: m.vision === true,
+      input: { text: true, image: m.vision === true },
+      output: { text: true },
+    },
     cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
     ...(m.free === true ? { free: true } : {}),
     ...(m.rate !== undefined ? { rate: m.rate } : {}),

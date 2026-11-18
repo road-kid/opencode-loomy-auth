@@ -176,6 +176,17 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
           capabilities: { function_calling: true, reasoning: true },
           reasoning_efforts: ["none", "low", "medium", "high", "xhigh"],
         },
+        // the gateway's own alias, as the live list measured it: the row
+        // declares image input in both spellings, and its record's
+        // capabilities.input.image mapping is the regression this shape
+        // exists for — magpie's badge reads that key alone
+        {
+          id: "deepseek-v4-flash-1017",
+          name: "DeepSeek V4.1 Flash 1017(x2.0)",
+          context_length: 1048576,
+          max_output_tokens: 384000,
+          capabilities: { reasoning: true, vision: true, function_calling: true, input_modalities: ["text", "image"] },
+        },
         // a row that declares nothing falls back to the fixed three
         { id: "plain-one", name: "Plain One", capabilities: { function_calling: true } },
       ],
@@ -184,14 +195,14 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   const hooks = await LoomyAuthPlugin({ client: {} })
   const fallback = { keep: "me" }
   const out = await hooks.provider.models({ id: "loomy", models: fallback }, { auth: { access: "tok" } })
-  assert.equal(Object.keys(out).length, 3)
+  assert.equal(Object.keys(out).length, 4)
   const m = out["GLM-5.3-Flash"]
   assert.equal(m.id, "GLM-5.3-Flash")
   assert.equal(m.providerID, "loomy")
   assert.equal(m.name, "GLM 5.3 Flash") // the rate is out of the name
   assert.equal(m.rate, "x0.8") // and on the record, where the host's picker reads it
   assert.deepEqual(m.api, { id: "GLM-5.3-Flash", url: f.origin + "/api/v1/chat/completions", npm: "@ai-sdk/openai-compatible" })
-  assert.deepEqual(m.capabilities, { toolcall: true, reasoning: false, attachment: false }) // no underscore here
+  assert.deepEqual(m.capabilities, { toolcall: true, reasoning: false, attachment: false, input: { text: true, image: false }, output: { text: true } }) // no underscore here
   assert.deepEqual(m.cost, { input: 0, output: 0, cache: { read: 0, write: 0 } }) // the cache keys nested
   assert.deepEqual(m.limit, { context: 131072, output: 8192 })
   const picked = {
@@ -210,7 +221,21 @@ test("the models hook answers the ModelInfo shape off the live list (F3/F4)", as
   // finds its row, and the declared five lose to the vendor's three
   assert.deepEqual(out["DeepSeek-V4.1-Flash"].variants, picked)
   assert.deepEqual(Object.keys(out["DeepSeek-V4.1-Flash"].variants), ["low", "high", "max"])
-  assert.ok(!("tool_call" in m), "no config keys in the ModelInfo shape")
+  // the bits ride three ways: nested for OpenCode v1, flat in models.dev's
+  // spelling for magpie's picker — the host passes a models hook's records
+  // through verbatim, and magpie reads attachment and modalities flat — and
+  // the capabilities.input mapping, whose imageSaid overrides the host's
+  // id-catalog fallback instead of leaning on it
+  assert.equal(m.tool_call, true)
+  assert.equal(m.reasoning, false)
+  assert.equal(m.attachment, false)
+  assert.deepEqual(m.modalities, { input: ["text"], output: ["text"] })
+  // the regression: the 1017 alias' live row declares image input, and its
+  // record carries the boolean mapping the badge reads, so imageSaid is
+  // said — the host's own models.dev catalog knows no such id and would
+  // have answered false off the id alone
+  assert.deepEqual(out["deepseek-v4-flash-1017"].capabilities.input, { text: true, image: true })
+  assert.ok(!("free" in m), "no free bit: the row isn't free")
   // the ask went out with the session's two headers and no signature
   const r = f.seen.find((x) => x.path === "/api/v1/models")
   assert.equal(r.headers.token, "tok")
@@ -387,6 +412,14 @@ test("the models hook serves the roster beside the chat models, and the fallback
   assert.deepEqual(out["doubao-seedream-5-lite"].variants, {})
   assert.equal(out["doubao-seedream-5-lite"].capabilities.toolcall, false)
   assert.equal(out["doubao-seedream-5-lite"].rate, undefined)
+  // the capability bits ride flat as well, models.dev's spelling — magpie's
+  // picker reads attachment and modalities off the top level of a models
+  // hook's record, and the badge is why a vision row reads as one there
+  assert.equal(out["doubao-seedream-5-lite"].attachment, true)
+  assert.deepEqual(out["doubao-seedream-5-lite"].modalities, { input: ["text", "image"], output: ["text"] })
+  assert.equal(out["GLM-5.3-Flash"].attachment, false) // the fixture's row declares no image input
+  assert.deepEqual(out["GLM-5.3-Flash"].modalities, { input: ["text"], output: ["text"] })
+  assert.equal(out["GLM-5.3-Flash"].tool_call, true)
   // no session: the fallback answers, chat models alone — a gated entry
   // without a live answer would be a dead one
   const { hooks: again, table } = await hostShaped()
