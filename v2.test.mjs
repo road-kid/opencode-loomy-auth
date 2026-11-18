@@ -425,6 +425,78 @@ test("the cleanup gives the registrations up: the subscription's signal with the
   assert.deepEqual(seen.disposals, ["integration", "provider"])
 })
 
+test("two locations' setups stand side by side: the second never gives up the first's registrations", async () => {
+  // the desktop host runs one setup per location (one per project window)
+  // over the same module instance, so each run's registrations and live rows
+  // have to be its own: a second location's boot must leave the first
+  // window's provider, integration and panel rpc standing, and only a run's
+  // own cleanup may give its registrations up
+  const first = fakeCtx()
+  let firstRpc
+  first.ctx.rpc = {
+    register: async (def, handlers) => {
+      firstRpc = { def, handlers }
+      return { dispose: () => first.seen.disposals.push("rpc") }
+    },
+  }
+  const second = fakeCtx()
+  let secondRpc
+  second.ctx.rpc = {
+    register: async (def, handlers) => {
+      secondRpc = { def, handlers }
+      return { dispose: () => second.seen.disposals.push("rpc") }
+    },
+  }
+  const cleanup1 = await loomy.setup(first.ctx)
+  assert.equal(firstRpc.def.id, "loomy-auth-quota", "the first location's panel channel is registered")
+  assert.deepEqual(first.seen.disposals, [], "nothing of the first run is given up by its own setup")
+  const cleanup2 = await loomy.setup(second.ctx)
+  assert.equal(secondRpc.def.id, "loomy-auth-quota", "the second location registers its own panel channel")
+  assert.deepEqual(first.seen.disposals, [], "the second setup never touches the first run's registrations")
+  assert.deepEqual(second.seen.disposals, [])
+  cleanup1()
+  assert.deepEqual(first.seen.disposals, ["integration", "provider", "rpc"], "the first cleanup gives up exactly the first run's")
+  assert.deepEqual(second.seen.disposals, [], "the second run's registrations stand")
+  cleanup2()
+  assert.deepEqual(second.seen.disposals, ["integration", "provider", "rpc"], "the second cleanup gives up exactly the second run's")
+})
+
+test("two locations' live rows stay apart: the second setup leaves the first's list standing", async () => {
+  // the same per-run state, seen from the rows' side: a second location's
+  // setup used to null the module-wide live cache, so the first window's
+  // provider fell back to the snapshot mid-session. Each run's rows are its
+  // own now, and a later setup reads and writes nothing of an earlier one's.
+  const up = await fakeLoomy()
+  const restore = pointAt(up.origin)
+  try {
+    up.route("GET /api/v1/models", () =>
+      json({ data: [{ id: "spark-x2.6", name: "Spark X2.6", type: "chat" }] })
+    )
+    const connection = {
+      active: async () => ({ integrationID: "loomy", id: "conn-1" }),
+      resolve: async () => ({ type: "oauth", access: "tok" }),
+    }
+    // a transform's replay, read off the fakes the way the host replays it
+    const rowsOf = (seen) => {
+      const adds = []
+      seen.providerTransforms[0]({ get: () => undefined, add: (entry) => adds.push(entry) })
+      return adds[0].models.map((m) => m.id)
+    }
+    const first = fakeCtx(connection)
+    const cleanup1 = await loomy.setup(first.ctx)
+    assert.deepEqual(rowsOf(first.seen), ["spark-x2.6"], "the first location reads its live rows")
+    const second = fakeCtx() // signed out: the snapshot's turn
+    const cleanup2 = await loomy.setup(second.ctx)
+    assert.deepEqual(rowsOf(first.seen), ["spark-x2.6"], "the second setup never resets the first run's live rows")
+    assert.ok(rowsOf(second.seen).includes("DeepSeek-V4.1-Flash"), "the second location's own rows are the snapshot's")
+    cleanup1()
+    cleanup2()
+  } finally {
+    await up.close()
+    restore()
+  }
+})
+
 // ---- the daily silent renewal ------------------------------------------------------
 
 test("v2BeijingDay is the Beijing calendar day, not the host's local one", () => {

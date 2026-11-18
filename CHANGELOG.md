@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.3 — 2026-11-18
+
+### Fixed
+
+- The live model rows and the registration disposers are each setup run's
+  own now, no longer module-level state. The desktop service runs one
+  `v2Setup` per location — one per project window — over a single module
+  instance, and the old setup began by giving up the previous run's
+  registrations wholesale: any location that booted after another tore
+  down the earlier one's provider, integration and panel rpc, so the
+  first window's panel answered "RPC is unavailable:
+  loomy-auth-quota" and its models fell back to the snapshot. Each run's
+  registrations now ride its own cleanup, called when the host unloads
+  that location, and a later setup touches nothing of an earlier one's.
+
 ## 0.2.2 — 2026-11-18
 
 ### Fixed

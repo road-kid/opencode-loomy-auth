@@ -1673,9 +1673,6 @@ function v2VariantsOf(m) {
   return levels.map((effort) => ({ id: effort, body: { reasoningEffort: effort } }))
 }
 
-let v2Live = null // the live chat rows (parseModels' short records), or null for the snapshot
-let v2Disposers = [] // the run's registrations, given up wholesale at cleanup
-
 // modelV2Of is one short model record — a FALLBACK_MODELS row or a
 // parseModels row, the same shape either way — as a v2 Model.Info spells it:
 // the id three times over (the record's, the model's, the provider's), the
@@ -1736,18 +1733,20 @@ function providerInfoOf() {
 
 // v2Models is the model rows the provider carries: the live list while one
 // was had, the snapshot otherwise — the same precedence the V1 models hook
-// keeps, read from the cache instead of at ask-time.
-const v2Models = (providerID = ID) => (v2Live ?? FALLBACK_MODELS).map((m) => modelV2Of(m, providerID))
+// keeps, read from the cache instead of at ask-time. The rows are the run's
+// own (run.live), so a second location's setup never rewrites the first's.
+const v2Models = (run, providerID = ID) => (run.live ?? FALLBACK_MODELS).map((m) => modelV2Of(m, providerID))
 
 // v2Transform is the provider domain's registration callback: the editor's
 // get tells a provider already on the books (an earlier run's, or the host's
 // own config) from a fresh one — the first takes the model rows set over it,
-// the second is added whole with its info record.
-function v2Transform(editor) {
+// the second is added whole with its info record. The run is the one whose
+// setup registered this callback, passed in by that setup's own closure.
+function v2Transform(editor, run) {
   if (editor?.get?.(ID)) {
-    editor.models?.set?.(ID, v2Models(ID))
+    editor.models?.set?.(ID, v2Models(run, ID))
   } else {
-    editor?.add?.({ info: providerInfoOf(), models: v2Models(ID) })
+    editor?.add?.({ info: providerInfoOf(), models: v2Models(run, ID) })
   }
 }
 
@@ -1877,8 +1876,9 @@ async function v2Renew(ctx) {
 // previous account's rows. The replay is the host's reload (it re-runs the
 // registered transforms against its own editors); a host without one keeps
 // the rows until its next replay. Nothing here throws, whatever the host's
-// domains turn out to be.
-async function v2Refresh(ctx) {
+// domains turn out to be. The rows land in the calling run's own live slot
+// (run.live), never a module-wide one: each location's setup keeps its own.
+async function v2Refresh(ctx, run) {
   let rows = null
   try {
     const connection = await ctx?.integration?.connection?.active?.(ID)
@@ -1892,7 +1892,7 @@ async function v2Refresh(ctx) {
       }
     }
   } catch {} // the ask's refusal is the snapshot's turn, never a failed refresh
-  v2Live = rows
+  run.live = rows
   try {
     if (typeof ctx?.provider?.reload === "function") await ctx.provider.reload()
   } catch {}
@@ -1904,18 +1904,16 @@ async function v2Refresh(ctx) {
 // renewal behind it), then the first refresh
 // — an account signed in before this run started gets its live list at
 // once — and the renewal wired behind it, at start, at every event, and
-// on a half-hour timer whose clearing rides among the disposers. A repeat
-// setup (a host that loads twice, a test's second context)
-// gives up the previous run's registrations first. The cleanup runs the
-// disposals the registrations answered — a synchronous call each, whatever
-// they return — and the subscription's abort rides among them.
+// on a half-hour timer whose clearing rides among the disposers. Every
+// location (every desktop window) runs one setup of its own, and the
+// state it keeps — the live rows and the disposers — belongs to that run
+// alone: an earlier run's registrations are given up by its own cleanup,
+// called when the host unloads it, and a later setup never touches them.
+// The cleanup runs the disposals this run's registrations answered — a
+// synchronous call each, whatever they return — and the subscription's
+// abort rides among them.
 async function v2Setup(ctx) {
-  for (const dispose of v2Disposers.splice(0)) {
-    try {
-      await dispose()
-    } catch {}
-  }
-  v2Live = null
+  const run = { live: null, disposers: [] }
   // the integration: the name beside the id, and the sign-in method under it
   try {
     if (typeof ctx?.integration?.transform === "function") {
@@ -1925,14 +1923,15 @@ async function v2Setup(ctx) {
         })
         editor.method?.update?.(v2Method())
       })
-      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+      if (typeof registration?.dispose === "function") run.disposers.push(registration.dispose)
     }
   } catch {}
-  // the provider: info and rows, added or set over what's there
+  // the provider: info and rows, added or set over what's there — the
+  // callback closes over this run, so its rows are this location's own
   try {
     if (typeof ctx?.provider?.transform === "function") {
-      const registration = await ctx.provider.transform(v2Transform)
-      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+      const registration = await ctx.provider.transform((editor) => v2Transform(editor, run))
+      if (typeof registration?.dispose === "function") run.disposers.push(registration.dispose)
     }
   } catch {}
   // the desktop panel's rpc: the two methods above, the GUI's one channel —
@@ -1943,7 +1942,7 @@ async function v2Setup(ctx) {
         status: () => v2QuotaStatus(ctx),
         checkin: () => v2QuotaCheckin(ctx),
       })
-      if (typeof registration?.dispose === "function") v2Disposers.push(registration.dispose)
+      if (typeof registration?.dispose === "function") run.disposers.push(registration.dispose)
     }
   } catch {}
   // the credential events: a sign-in, a switch, an integration update — each
@@ -1961,18 +1960,18 @@ async function v2Setup(ctx) {
             types: ["credential.updated", "credential.switched", "integration.updated"],
             signal: controller.signal,
           })) {
-            await v2Refresh(ctx)
+            await v2Refresh(ctx, run)
             void v2Renew(ctx) // fire-and-forget: the renewal is silent, whatever it meets
           }
         } catch {}
       })()
-      v2Disposers.push(() => controller.abort())
+      run.disposers.push(() => controller.abort())
     }
   } catch {}
   // the first refresh: a signed-in account's live list, without waiting for
   // an event that may never come
   try {
-    await v2Refresh(ctx)
+    await v2Refresh(ctx, run)
   } catch {}
   // the daily renewal: once now, once after every credential event, and on
   // a half-hour timer between the two — the day's first-login claim made
@@ -1987,9 +1986,9 @@ async function v2Setup(ctx) {
   void v2Renew(ctx)
   const renewalTimer = setInterval(() => v2Renew(ctx), V2_RENEWAL_INTERVAL_MS)
   renewalTimer.unref?.()
-  v2Disposers.push(() => clearInterval(renewalTimer))
+  run.disposers.push(() => clearInterval(renewalTimer))
   return () => {
-    for (const dispose of v2Disposers.splice(0)) {
+    for (const dispose of run.disposers.splice(0)) {
       try {
         dispose()
       } catch {}
